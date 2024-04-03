@@ -22,6 +22,7 @@ class TemplateDataManagerConfig(VanillaDataManagerConfig):
     """
 
     _target: Type = field(default_factory=lambda: TemplateDataManager)
+    train_split_fraction: float = 1.0
 
 
 class TemplateDataManager(VanillaDataManager):

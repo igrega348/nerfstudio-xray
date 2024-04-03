@@ -4,10 +4,15 @@ Template Nerfstudio Field
 Currently this subclasses the NerfactoField. Consider subclassing the base Field.
 """
 
-from typing import Literal, Optional
+from typing import Dict, Literal, Optional, Tuple
 
+import torch
+from nerfstudio.cameras.rays import RaySamples
+from nerfstudio.field_components.activations import trunc_exp
+from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SpatialDistortion
 from nerfstudio.fields.base_field import Field  # for custom Field
+from nerfstudio.fields.base_field import get_normalized_directions
 from nerfstudio.fields.nerfacto_field import \
     NerfactoField  # for subclassing NerfactoField
 from torch import Tensor
@@ -86,5 +91,67 @@ class TemplateNerfField(NerfactoField):
             implementation=implementation,
         )
 
-    # TODO: Override any potential methods to implement your own field.
-    # or subclass from base Field and define all mandatory methods.
+    def get_outputs(
+        self, ray_samples: RaySamples, density_embedding: Optional[Tensor] = None
+    ) -> Dict[FieldHeadNames, Tensor]:
+        assert density_embedding is not None
+        outputs = {}
+        if ray_samples.camera_indices is None:
+            raise AttributeError("Camera indices are not provided.")
+        camera_indices = ray_samples.camera_indices.squeeze()
+        directions = get_normalized_directions(ray_samples.frustums.directions)
+        directions_flat = directions.view(-1, 3)
+        d = self.direction_encoding(directions_flat)
+
+        outputs_shape = ray_samples.frustums.directions.shape[:-1]
+
+        # h = torch.cat(
+        #     [
+        #         d,
+        #         density_embedding.view(-1, self.geo_feat_dim),
+        #     ]
+        #     + (
+        #         [embedded_appearance.view(-1, self.appearance_embedding_dim)] if embedded_appearance is not None else []
+        #     ),
+        #     dim=-1,
+        # )
+        # rgb = self.mlp_head(h).view(*outputs_shape, -1).to(directions)
+        rgb = torch.zeros((*outputs_shape, 3)).to(directions)
+        outputs.update({FieldHeadNames.RGB: rgb})
+
+        return outputs
+
+
+    def get_density_train(self, pos: Tensor) -> Tuple[Tensor, Tensor]:
+        """Computes and returns the densities."""
+        positions = pos
+        # Make sure the tcnn gets inputs between 0 and 1.
+        selector = ((positions > 0.0) & (positions < 1.0)).all(dim=-1)
+        positions = positions * selector[..., None]
+        self._sample_locations = positions
+        if not self._sample_locations.requires_grad:
+            self._sample_locations.requires_grad = True
+        positions_flat = positions.view(-1, 3)
+        h = self.mlp_base(positions_flat).view(pos.shape[0], -1)
+        # h = self.mlp_base(positions_flat).view(*ray_samples.frustums.shape, -1)
+        density_before_activation, base_mlp_out = torch.split(h, [1, self.geo_feat_dim], dim=-1)
+        self._density_before_activation = density_before_activation
+
+        # Rectifying the density with an exponential is much more stable than a ReLU or
+        # softplus, because it enables high post-activation (float32) density outputs
+        # from smaller internal (float16) parameters.
+        density = self.average_init_density * trunc_exp(density_before_activation.to(positions))
+        density = density * selector[..., None]
+        return density, base_mlp_out
+    
+    def forward_train(self, pos: Tensor) -> Dict[FieldHeadNames, Tensor]:
+        """Evaluates the field at points along the ray.
+
+        Args:
+            ray_samples: Samples to evaluate field on.
+        """
+        density, density_embedding = self.get_density_train(pos)
+        field_outputs = {}
+        field_outputs[FieldHeadNames.DENSITY] = density  # type: ignore
+
+        return field_outputs

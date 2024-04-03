@@ -8,11 +8,10 @@ from typing import Dict, List, Literal, Tuple, Type, Union
 
 import numpy as np
 import torch
-from torch import Tensor
 from jaxtyping import Float, Shaped
-from nerfstudio.cameras.cameras import Cameras
 from nerfstudio.cameras.camera_optimizers import (CameraOptimizer,
                                                   CameraOptimizerConfig)
+from nerfstudio.cameras.cameras import Cameras
 from nerfstudio.cameras.rays import RayBundle, RaySamples
 from nerfstudio.engine.callbacks import (TrainingCallback,
                                          TrainingCallbackAttributes,
@@ -36,6 +35,7 @@ from nerfstudio.models.base_model import Model, ModelConfig  # for custom Model
 from nerfstudio.models.nerfacto import (  # for subclassing Nerfacto model
     NerfactoModel, NerfactoModelConfig)
 from nerfstudio.utils import colormaps
+from torch import Tensor
 from torch.nn import Parameter
 
 from .template_field import TemplateNerfField
@@ -227,28 +227,17 @@ class TemplateModel(Model):
             )
         return callbacks
     
-    def forward(self, ray_bundle: Union[RayBundle, Cameras]) -> Dict[str, Union[torch.Tensor, List]]:
-        """Run forward starting with a ray bundle. This outputs different things depending on the configuration
-        of the model and whether or not the batch is provided (whether or not we are training basically)
+    def forward_train(self, pos: Shaped[Tensor, "*bs 3"]) -> Dict[FieldHeadNames, Tensor]:
+        field_outputs = self.field.forward_train(pos)
+        return field_outputs
 
-        Args:
-            ray_bundle: containing all the information needed to render that ray latents included
-        """
-
-        # if self.collider is not None:
-        #     ray_bundle = self.collider(ray_bundle)
-
-        return self.get_outputs(ray_bundle)
-
-    def get_outputs(self, pos: Shaped[Tensor, "*bs 3"]):
-    # def get_outputs(self, ray_bundle: RayBundle):
+    def get_outputs(self, ray_bundle: RayBundle):
         # apply the camera optimizer pose tweaks
-        # if self.training:
-        #     self.camera_optimizer.apply_to_raybundle(ray_bundle)
-        # ray_samples: RaySamples
-        # ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
-        # field_outputs = self.field.forward(ray_samples, compute_normals=self.config.predict_normals)
-        field_outputs = self.field.forward(pos)
+        if self.training:
+            self.camera_optimizer.apply_to_raybundle(ray_bundle)
+        ray_samples: RaySamples
+        ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
+        field_outputs = self.field.forward(ray_samples, compute_normals=self.config.predict_normals)
         if self.config.use_gradient_scaling:
             field_outputs = scale_gradients_by_distance_squared(field_outputs, ray_samples)
 
@@ -293,6 +282,11 @@ class TemplateModel(Model):
         for i in range(self.config.num_proposal_iterations):
             outputs[f"prop_depth_{i}"] = self.renderer_depth(weights=weights_list[i], ray_samples=ray_samples_list[i])
         return outputs
+
+    def get_outputs_train(self, pos: Shaped[Tensor, "*bs 3"]):
+        field_outputs = self.field.forward_train(pos)
+        return field_outputs
+       
 
     def get_metrics_dict(self, outputs, batch):
         metrics_dict = {}

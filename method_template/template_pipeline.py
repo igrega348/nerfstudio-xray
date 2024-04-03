@@ -6,11 +6,14 @@ import typing
 from dataclasses import dataclass, field
 from typing import Literal, Optional, Type
 
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.distributed as dist
 from jaxtyping import Float, Shaped
 from nerfstudio.data.datamanagers.base_datamanager import (DataManager,
                                                            DataManagerConfig)
+from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.models.base_model import ModelConfig
 from nerfstudio.pipelines.base_pipeline import (VanillaPipeline,
                                                 VanillaPipelineConfig)
@@ -82,8 +85,8 @@ class TemplatePipeline(VanillaPipeline):
         density = r.new_zeros(r.size())
         btm_mask = torch.all(pos>-0.25, dim=-1, keepdim=True)
         top_mask = torch.all(pos<0.25, dim=-1, keepdim=True)
-        mask = btm_mask & top_mask & (r<0.25)
-        density[mask] = 1.0
+        mask = btm_mask & top_mask & (r>0.125)
+        density[mask] = 0.5
         return density
 
     @profiler.time_function
@@ -100,10 +103,24 @@ class TemplatePipeline(VanillaPipeline):
         # metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
         # loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         # sample positions
-        pos = torch.rand((self.config.datamanager.train_num_rays_per_batch, 3), device=self.device)
+        pos = torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device)
         density = self.true_density(pos)
-        model_outputs = self._model(pos)  # train distributed data parallel model if world_size > 1
-        loss_dict = {'loss': torch.nn.functional.mse_loss(model_outputs, density)}
+        model_outputs = self._model.forward_train(pos)  # train distributed data parallel model if world_size > 1
+        loss_dict = {'loss': torch.nn.functional.mse_loss(model_outputs[FieldHeadNames.DENSITY], density)}
+
+        # if step % 1000 == 0:
+        #     _,_ = self.eval_along_line()
 
         # return model_outputs, loss_dict, metrics_dict
-        return model_outputs, loss_dict, None
+        return model_outputs, loss_dict, {}
+    
+    def eval_along_line(self):
+        x = torch.linspace(0, 1, 500, device=self.device)
+        y = 0.5*torch.ones_like(x)
+        z = 0.5*torch.ones_like(x)
+        pos = torch.stack([x, y, z], dim=-1)
+        with torch.no_grad():
+            model_outputs = self._model.forward_train(pos)
+        density = self.true_density(pos)
+        pred_density = model_outputs[FieldHeadNames.DENSITY]
+        return pred_density, density
