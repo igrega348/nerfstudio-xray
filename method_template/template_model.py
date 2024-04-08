@@ -49,18 +49,8 @@ class TemplateModelConfig(NerfactoModelConfig):
     """
 
     _target: Type = field(default_factory=lambda: TemplateModel)
-
-
-# class TemplateModel(NerfactoModel):
-#     """Template Model."""
-
-#     config: TemplateModelConfig
-
-#     def populate_modules(self):
-#         super().populate_modules()
-
-#     # TODO: Override any potential functions/methods to implement your own method
-#     # or subclass from "Model" and define all mandatory fields.
+    volumetric_training: bool = False
+    """whether to train volumetrically or from projections"""
 
 class TemplateModel(Model):
     """Nerfacto model
@@ -69,7 +59,7 @@ class TemplateModel(Model):
         config: Nerfacto configuration to instantiate model
     """
 
-    config: NerfactoModelConfig
+    config: TemplateModelConfig
 
     def populate_modules(self):
         """Set the fields and modules."""
@@ -101,6 +91,7 @@ class TemplateModel(Model):
             appearance_embedding_dim=appearance_embedding_dim,
             average_init_density=self.config.average_init_density,
             implementation=self.config.implementation,
+            volumetric_training=self.config.volumetric_training,
         )
 
         self.camera_optimizer: CameraOptimizer = self.config.camera_optimizer.setup(
@@ -227,9 +218,20 @@ class TemplateModel(Model):
             )
         return callbacks
     
-    def forward_train(self, pos: Shaped[Tensor, "*bs 3"]) -> Dict[FieldHeadNames, Tensor]:
-        field_outputs = self.field.forward_train(pos)
-        return field_outputs
+    def forward(self, ray_bundle: Union[RayBundle, Cameras, Tensor]) -> Dict[str, Union[torch.Tensor, List]]:
+        """Run forward starting with a ray bundle. This outputs different things depending on the configuration
+        of the model and whether or not the batch is provided (whether or not we are training basically)
+
+        Args:
+            ray_bundle: containing all the information needed to render that ray latents included or positions for volumetric training
+        """
+        if self.training and self.config.volumetric_training:
+            return self.field.forward(ray_bundle)
+        else:
+            if self.collider is not None:
+                ray_bundle = self.collider(ray_bundle)
+
+            return self.get_outputs(ray_bundle)
 
     def get_outputs(self, ray_bundle: RayBundle):
         # apply the camera optimizer pose tweaks
@@ -281,12 +283,7 @@ class TemplateModel(Model):
 
         for i in range(self.config.num_proposal_iterations):
             outputs[f"prop_depth_{i}"] = self.renderer_depth(weights=weights_list[i], ray_samples=ray_samples_list[i])
-        return outputs
-
-    def get_outputs_train(self, pos: Shaped[Tensor, "*bs 3"]):
-        field_outputs = self.field.forward_train(pos)
-        return field_outputs
-       
+        return outputs       
 
     def get_metrics_dict(self, outputs, batch):
         metrics_dict = {}

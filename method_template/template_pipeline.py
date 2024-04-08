@@ -36,6 +36,8 @@ class TemplatePipelineConfig(VanillaPipelineConfig):
     """specifies the datamanager config"""
     model: ModelConfig = TemplateModelConfig()
     """specifies the model config"""
+    volumetric_training: bool = False
+    """specifies if the training is volumetric or from projections"""
 
 
 class TemplatePipeline(VanillaPipeline):
@@ -98,29 +100,57 @@ class TemplatePipeline(VanillaPipeline):
         Args:
             step: current iteration step to update sampler if using DDP (distributed)
         """
-        # ray_bundle, batch = self.datamanager.next_train(step)
-        # model_outputs = self._model(ray_bundle)  # train distributed data parallel model if world_size > 1
-        # metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
-        # loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
-        # sample positions
-        pos = torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device)
-        density = self.true_density(pos)
-        model_outputs = self._model.forward_train(pos)  # train distributed data parallel model if world_size > 1
-        loss_dict = {'loss': torch.nn.functional.mse_loss(model_outputs[FieldHeadNames.DENSITY], density)}
+        if self.config.volumetric_training:
+            # sample positions
+            pos = torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device)
+            density = self.true_density(pos)
+            model_outputs = self._model.forward(pos)  # train distributed data parallel model if world_size > 1
+            loss_dict = {'loss': torch.nn.functional.mse_loss(model_outputs[FieldHeadNames.DENSITY], density)}
+            metrics_dict = {}
+        else:
+            ray_bundle, batch = self.datamanager.next_train(step)
+            model_outputs = self._model(ray_bundle)  # train distributed data parallel model if world_size > 1
+            metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
+            loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
+        
+        if step == 1000:
+            # _,_ = self.eval_along_line()
+            self.eval_along_plane(plane='xy')
 
-        # if step % 1000 == 0:
-        #     _,_ = self.eval_along_line()
-
-        # return model_outputs, loss_dict, metrics_dict
-        return model_outputs, loss_dict, {}
+        return model_outputs, loss_dict, metrics_dict
     
     def eval_along_line(self):
-        x = torch.linspace(0, 1, 500, device=self.device)
-        y = 0.5*torch.ones_like(x)
-        z = 0.5*torch.ones_like(x)
+        z = torch.linspace(0, 1, 500, device=self.device)
+        y = 0.5*torch.ones_like(z)
+        x = 0.5*torch.ones_like(z)
         pos = torch.stack([x, y, z], dim=-1)
         with torch.no_grad():
-            model_outputs = self._model.forward_train(pos)
+            self._model.field.volumetric_training = True
+            model_outputs = self._model.field.forward(pos)
+            self._model.field.volumetric_training = False
         density = self.true_density(pos)
         pred_density = model_outputs[FieldHeadNames.DENSITY]
+        plt.plot(z.cpu().numpy(), pred_density.cpu().numpy())
+        plt.savefig('C:/temp/nerfstudio/outputs/sphere_render/method-template/out.png')
+        plt.close()
         return pred_density, density
+    
+    def eval_along_plane(self, plane='xy'):
+        a = torch.linspace(0, 1, 500, device=self.device)
+        b = torch.linspace(0, 1, 500, device=self.device)
+        A,B = torch.meshgrid(a,b, indexing='ij')
+        C = 0.5*torch.ones_like(A)
+        if plane == 'xy':
+            pos = torch.stack([A, B, C], dim=-1)
+        elif plane == 'yz':
+            pos = torch.stack([C, A, B], dim=-1)
+        elif plane == 'xz':
+            pos = torch.stack([A, C, B], dim=-1)
+        with torch.no_grad():
+            self._model.field.volumetric_training = True
+            model_outputs = self._model.field.forward(pos)
+            self._model.field.volumetric_training = False
+        pred_density = model_outputs[FieldHeadNames.DENSITY]
+        plt.imshow(pred_density.cpu().numpy())
+        plt.savefig('C:/temp/nerfstudio/outputs/sphere_render/method-template/out_2d.png')
+        plt.close()
