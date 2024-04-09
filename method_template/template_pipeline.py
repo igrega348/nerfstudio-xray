@@ -113,9 +113,11 @@ class TemplatePipeline(VanillaPipeline):
             metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
             loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         
-        if step == 1000:
+        if step == 5000:
+            for z in np.arange(0.2, 0.9, 0.1):
+                self.eval_along_plane(plane='xy', distance=z, fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/sphere_render/method-template/out_{z:.1f}.png')
             # _,_ = self.eval_along_line()
-            self.eval_along_plane(plane='xy')
+            # self.eval_along_plane(plane='xy')
 
         return model_outputs, loss_dict, metrics_dict
     
@@ -135,11 +137,11 @@ class TemplatePipeline(VanillaPipeline):
         plt.close()
         return pred_density, density
     
-    def eval_along_plane(self, plane='xy'):
+    def eval_along_plane(self, plane='xy', distance=0.5, fn=None):
         a = torch.linspace(0, 1, 500, device=self.device)
         b = torch.linspace(0, 1, 500, device=self.device)
         A,B = torch.meshgrid(a,b, indexing='ij')
-        C = 0.5*torch.ones_like(A)
+        C = distance*torch.ones_like(A)
         if plane == 'xy':
             pos = torch.stack([A, B, C], dim=-1)
         elif plane == 'yz':
@@ -152,5 +154,6 @@ class TemplatePipeline(VanillaPipeline):
             self._model.field.volumetric_training = False
         pred_density = model_outputs[FieldHeadNames.DENSITY]
         plt.imshow(pred_density.cpu().numpy())
-        plt.savefig('C:/temp/nerfstudio/outputs/sphere_render/method-template/out_2d.png')
+        if fn is not None:
+            plt.savefig(fn)
         plt.close()
