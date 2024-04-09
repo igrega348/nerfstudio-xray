@@ -6,6 +6,7 @@ import typing
 from dataclasses import dataclass, field
 from typing import Literal, Optional, Type
 
+import cv2 as cv
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -113,9 +114,10 @@ class TemplatePipeline(VanillaPipeline):
             metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
             loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         
-        if step == 5000:
-            for z in np.arange(0.2, 0.9, 0.1):
-                self.eval_along_plane(plane='xy', distance=z, fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/sphere_render/method-template/out_{z:.1f}.png')
+        if step == 1000:
+            for z in np.arange(0.0, 1.0, 0.002):
+                self.eval_along_plane(plane='xy', distance=z, fn=f'C:/temp/nerfstudio/outputs/neural_xray_data/method-template/slices/out_{z:.3f}.tif', engine='cv')
+                # self.eval_along_plane(plane='xy', distance=z, fn=f'C:/temp/nerfstudio/outputs/sphere_render/method-template/out_{z:.1f}.png')
             # _,_ = self.eval_along_line()
             # self.eval_along_plane(plane='xy')
 
@@ -137,7 +139,7 @@ class TemplatePipeline(VanillaPipeline):
         plt.close()
         return pred_density, density
     
-    def eval_along_plane(self, plane='xy', distance=0.5, fn=None):
+    def eval_along_plane(self, plane='xy', distance=0.5, fn=None, engine='cv'):
         a = torch.linspace(0, 1, 500, device=self.device)
         b = torch.linspace(0, 1, 500, device=self.device)
         A,B = torch.meshgrid(a,b, indexing='ij')
@@ -153,7 +155,15 @@ class TemplatePipeline(VanillaPipeline):
             model_outputs = self._model.field.forward(pos)
             self._model.field.volumetric_training = False
         pred_density = model_outputs[FieldHeadNames.DENSITY]
-        plt.imshow(pred_density.cpu().numpy())
-        if fn is not None:
-            plt.savefig(fn)
-        plt.close()
+        if engine=='matplotlib':
+            plt.imshow(pred_density.cpu().numpy())
+            if fn is not None:
+                plt.savefig(fn)
+            plt.close()
+        elif engine=='cv':
+            pred_density = pred_density.cpu().numpy()
+            # pred_density = (pred_density - pred_density.min())/(pred_density.max() - pred_density.min())
+            # pred_density is between 0 and 1 anyways
+            pred_density = (pred_density*255).astype(np.uint8)
+            if fn is not None:
+                cv.imwrite(fn, pred_density)
