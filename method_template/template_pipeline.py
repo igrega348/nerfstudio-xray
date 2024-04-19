@@ -114,9 +114,9 @@ class TemplatePipeline(VanillaPipeline):
             metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
             loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         
-        if step == 1000:
+        if step == 500:
             for z in np.arange(0.0, 1.0, 0.02):
-                self.eval_along_plane(plane='xy', distance=z, fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/kel4_def/method-template/slices/out_{z:.3f}.tif', engine='cv')
+                self.eval_along_plane(plane='xy', distance=z, fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/sphere_render/method-template/slices/out_{z:.3f}.png', engine='matplotlib')
                 # self.eval_along_plane(plane='xy', distance=z, fn=f'C:/temp/nerfstudio/outputs/sphere_render/method-template/out_{z:.1f}.png')
             # _,_ = self.eval_along_line()
             # self.eval_along_plane(plane='xy')
@@ -156,7 +156,7 @@ class TemplatePipeline(VanillaPipeline):
             self._model.field.volumetric_training = False
         pred_density = model_outputs[FieldHeadNames.DENSITY]
         if engine=='matplotlib':
-            plt.imshow(pred_density.cpu().numpy())
+            plt.imshow(pred_density.cpu().numpy(), extent=[0,1,0,1], origin='lower', cmap='gray')
             if fn is not None:
                 plt.savefig(fn)
             plt.close()
