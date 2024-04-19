@@ -3,15 +3,15 @@ Template DataManager
 """
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, Literal, Tuple, Type, Union
 
 import torch
-
 from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.data.datamanagers.base_datamanager import (
-    VanillaDataManager,
-    VanillaDataManagerConfig,
-)
+    VanillaDataManager, VanillaDataManagerConfig)
+
+from .objects import Object
 
 
 @dataclass
@@ -46,6 +46,10 @@ class TemplateDataManager(VanillaDataManager):
         super().__init__(
             config=config, device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank, **kwargs
         )
+        self.object = None
+        if config.data is not None:
+            folder = config.data.parent if config.data.suffix=='.json' else config.data
+            self.object = Object.from_yaml(folder / "object.yaml")
 
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""

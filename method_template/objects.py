@@ -1,3 +1,4 @@
+from abc import abstractmethod
 from pathlib import Path
 from typing import Iterable
 
@@ -7,8 +8,26 @@ import yaml
 
 
 class Object:
+    @abstractmethod
+    def density(self, pos: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError()
+    
+    def t_density(self, pos: torch.Tensor) -> torch.Tensor:
+        return self.density(self.transform_pos(pos))
+
+    def transform_pos(self, pos: torch.Tensor) -> torch.Tensor:
+        # Default input Object coordinates are -1 to 1
+        # Default nerfstudio is 0 to 1
+        return (pos + 1) / 2
+
     @staticmethod
-    def from_yaml(d: dict):
+    def from_yaml(path: Path) -> "Object":
+        with open(path, "r") as f:
+            d = yaml.safe_load(f)
+        return Object.from_dict(d)
+    
+    @staticmethod
+    def from_dict(d: dict) -> "Object":
         if d["type"] == "sphere":
             return Sphere(torch.tensor(d["center"]), d["radius"], d["rho"])
         if d["type"] == "cube":
@@ -16,12 +35,17 @@ class Object:
         if d["type"] == "cylinder":
             return Cylinder(torch.tensor(d["p0"]), torch.tensor(d["p1"]), d["radius"], d["rho"])
         if d["type"] == "object_collection":
-            return ObjectCollection(Object.from_yaml(o) for o in d["objects"])
+            return ObjectCollection(Object.from_dict(o) for o in d["objects"])
         raise ValueError(f"Unknown object type: {d['type']}")
 
-class ObjectCollection:
+class ObjectCollection(Object):
     def __init__(self, objects: Iterable[Object]):
         self.objects = list(objects)
+
+    def density(self, pos: torch.Tensor) -> torch.Tensor:
+        # sum densities of all objects clipped between 0 and 1
+        rho = torch.stack([obj.density(pos) for obj in self.objects], dim=-1)
+        return torch.clamp(torch.sum(rho, dim=-1), 0, 1)
 
     def __iter__(self):
         return iter(self.objects)
@@ -36,7 +60,7 @@ class Sphere(Object):
         self.rho = rho
 
     def density(self, pos: torch.Tensor):
-        r2 = torch.sum((pos - self.center)**2, dim=-1)
+        r2 = torch.sum((pos - self.center.to(pos.device))**2, dim=-1)
         rho = pos.new_zeros(r2.size())
         mask_inside = r2 < self.radius**2
         rho[mask_inside] = self.rho
@@ -50,8 +74,8 @@ class Cube(Object):
 
     def density(self, pos: torch.Tensor):
         half_side = self.side / 2
-        min_corner = self.center - half_side
-        max_corner = self.center + half_side
+        min_corner = self.center.to(pos.device) - half_side
+        max_corner = self.center.to(pos.device) + half_side
         mask_inside = torch.all(pos >= min_corner, dim=-1) & torch.all(pos <= max_corner, dim=-1)
         rho = pos.new_zeros(mask_inside.size())
         rho[mask_inside] = self.rho
@@ -65,10 +89,10 @@ class Cylinder(Object):
         self.rho = rho
 
     def density(self, pos: torch.Tensor):
-        v = self.p1 - self.p0
+        p0 = self.p0.to(pos.device)
+        p1 = self.p1.to(pos.device)
+        v = p1 - p0
         v = v / torch.norm(v)
-        p0 = self.p0
-        p1 = self.p1
         p = pos
         a = torch.sum((p - p0) * v, dim=-1)
         b = torch.sum((p - p1) * v, dim=-1)
