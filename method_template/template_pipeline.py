@@ -115,9 +115,9 @@ class TemplatePipeline(VanillaPipeline):
             loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         
         if step == 1000:
-            for z in np.arange(0.0, 1.0, 0.02):
-                self.eval_along_plane(plane='xy', distance=z, fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/kel4_def/method-template/slices/out_{z:.3f}.tif', engine='cv')
-                # self.eval_along_plane(plane='xy', distance=z, fn=f'C:/temp/nerfstudio/outputs/sphere_render/method-template/out_{z:.1f}.png')
+            for z in np.arange(0.0, 1.0, 0.002):
+                # self.eval_along_plane(plane='xy', distance=z, fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/kel4_def/method-template/slices/out_{z:.3f}.tif', engine='cv')
+                self.eval_along_plane(plane='xy', distance=z, fn=f'C:/temp/nerfstudio/outputs/kel4_def/method-template/slices/out_{z:.3f}.tif', engine='cv')
             # _,_ = self.eval_along_line()
             # self.eval_along_plane(plane='xy')
 
