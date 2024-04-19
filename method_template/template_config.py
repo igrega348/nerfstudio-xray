@@ -39,6 +39,7 @@ method_template = MethodSpecification(
                 eval_num_rays_per_batch=4096,
             ),
             model=TemplateModelConfig(
+                use_appearance_embedding=False,
                 background_color='white',
                 eval_num_rays_per_chunk=1 << 15,
                 volumetric_training=_volumetric_training,
