@@ -162,6 +162,29 @@ class TemplateNerfField(NerfactoField):
         density = density * selector[..., None]
         return density, base_mlp_out
 
+    def get_density_from_pos(self, positions: Tensor) -> Tensor:
+        h_to_shape = list(positions.shape[:-1])
+        # Make sure the tcnn gets inputs between 0 and 1.
+        selector = ((positions > 0.0) & (positions < 1.0)).all(dim=-1)
+        positions = positions * selector[..., None]
+        self._sample_locations = positions
+        if not self._sample_locations.requires_grad:
+            self._sample_locations.requires_grad = True
+        positions_flat = positions.view(-1, 3)
+        h = self.mlp_base(positions_flat).view(*h_to_shape, -1)
+        density_before_activation, base_mlp_out = torch.split(h, [1, self.geo_feat_dim], dim=-1)
+        # Offset this to more negative
+        density_before_activation = density_before_activation - 2.0
+        self._density_before_activation = density_before_activation
+
+        # Rectifying the density with an exponential is much more stable than a ReLU or
+        # softplus, because it enables high post-activation (float32) density outputs
+        # from smaller internal (float16) parameters.
+        # density = self.average_init_density * trunc_exp(density_before_activation.to(positions))
+        # try sigmoid activation
+        density = self.average_init_density * torch.sigmoid(density_before_activation.to(positions))
+        density = density * selector[..., None]
+        return density
     
     def forward(self, ray_samples: RaySamples, compute_normals: bool = False) -> Dict[FieldHeadNames, Tensor]:
         """Evaluates the field at points along the ray.

@@ -18,7 +18,7 @@ class Object:
     def transform_pos(self, pos: torch.Tensor) -> torch.Tensor:
         # Default input Object coordinates are -1 to 1
         # Default nerfstudio is 0 to 1
-        return (pos + 1) / 2
+        return pos*2 - 1
 
     @staticmethod
     def from_yaml(path: Path) -> "Object":

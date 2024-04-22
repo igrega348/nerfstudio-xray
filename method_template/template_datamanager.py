@@ -49,7 +49,9 @@ class TemplateDataManager(VanillaDataManager):
         self.object = None
         if config.data is not None:
             folder = config.data.parent if config.data.suffix=='.json' else config.data
-            self.object = Object.from_yaml(folder / "object.yaml")
+            yaml_files = list(folder.glob("*.yaml"))
+            assert len(yaml_files) == 1, f"Expected 1 yaml file, got {len(yaml_files)}"
+            self.object = Object.from_yaml(yaml_files[0])
 
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""

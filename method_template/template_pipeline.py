@@ -6,7 +6,7 @@ import typing
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import time
-from typing import Literal, Optional, Type
+from typing import Any, Dict, Literal, Optional, Sequence, Tuple, Type
 
 import cv2 as cv
 import matplotlib.pyplot as plt
@@ -90,6 +90,26 @@ class TemplatePipeline(VanillaPipeline):
                 TemplateModel, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True)
             )
             dist.barrier(device_ids=[local_rank])
+
+    @profiler.time_function
+    def get_eval_loss_dict(self, step: int) -> Tuple[Any, Dict[str, Any], Dict[str, Any]]:
+        """This function gets your evaluation loss dict. It needs to get the data
+        from the DataManager and feed it to the model's forward function
+
+        Args:
+            step: current iteration step
+        """
+        self.eval()
+        ray_bundle, batch = self.datamanager.next_eval(step)
+        model_outputs = self.model(ray_bundle)
+        metrics_dict: Dict
+        metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
+        metrics_dict['volumetric_loss'] = self.calculate_density_loss()
+        loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
+        # evaluate along a few lines
+        self.eval_along_lines(b=[0.5,0.75,0.22,0.21,0.68], c=[0.43,0.79,0.2,0.75,0.3], line='x', fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/balls/method-template/line_{step:04d}.png')
+        self.train()
+        return model_outputs, loss_dict, metrics_dict
     
     @profiler.time_function
     def get_average_eval_image_metrics(
@@ -148,19 +168,19 @@ class TemplatePipeline(VanillaPipeline):
                     torch.mean(torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list]))
                 )
         # evaluate volumetric loss on a 100x100x100 grid
-        pos = torch.linspace(0, 1, 100, device=self.device)
-        pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
-        self.train()
-        with torch.no_grad():
-            self._model.field.volumetric_training = True
-            model_outputs = self._model.field.forward(pos)
-            self._model.field.volumetric_training = False
-            pred_density = model_outputs[FieldHeadNames.DENSITY].squeeze()
-        density = self.datamanager.object.t_density(pos)
-        density_loss = torch.nn.functional.mse_loss(pred_density, density)
-        metrics_dict['volumetric_loss'] = density_loss.item()
+        density_loss = self.calculate_density_loss()
+        metrics_dict['volumetric_loss'] = density_loss
         self.train()
         return metrics_dict
+    
+    def calculate_density_loss(self):
+        pos = torch.linspace(0, 1, 100, device=self.device)
+        pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
+        with torch.no_grad():
+            pred_density = self._model.field.get_density_from_pos(pos).squeeze()
+        density = self.datamanager.object.t_density(pos)
+        density_loss = torch.nn.functional.mse_loss(pred_density, density).item()
+        return density_loss
 
     @profiler.time_function
     def get_train_loss_dict(self, step: int):
@@ -184,30 +204,45 @@ class TemplatePipeline(VanillaPipeline):
             metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
             loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         
-        if step == 500:
-            for z in np.arange(0.0, 1.0, 0.02):
-                # self.eval_along_plane(plane='xy', distance=z, fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/sphere_render/method-template/slices/out_{z:.3f}.png', engine='matplotlib')
-                self.eval_along_plane(plane='xy', distance=z, fn=f'C:/temp/nerfstudio/outputs/sphere_render/method-template/slices/out_{z:.3f}.png')
+        # if step == 500:
+        #     for z in np.arange(0.0, 1.0, 0.02):
+        #         self.eval_along_plane(plane='xy', distance=z, fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/balls/method-template/slices/out_{z:.3f}.png', engine='matplotlib')
+                # self.eval_along_plane(plane='xy', distance=z, fn=f'C:/temp/nerfstudio/outputs/sphere_render/method-template/slices/out_{z:.3f}.png')
             # _,_ = self.eval_along_line()
             # self.eval_along_plane(plane='xy')
 
         return model_outputs, loss_dict, metrics_dict
     
-    def eval_along_line(self):
-        z = torch.linspace(0, 1, 500, device=self.device)
-        y = 0.5*torch.ones_like(z)
-        x = 0.5*torch.ones_like(z)
-        pos = torch.stack([x, y, z], dim=-1)
+    def eval_along_lines(self, b: Sequence[float], c: Sequence[float], line='x', fn=None, engine='matplotlib'):
+        a = torch.linspace(0, 1, 500, device=self.device)
+        bc = torch.ones_like(a)
+        pred_densities = []
+        true_densities = []
         with torch.no_grad():
-            self._model.field.volumetric_training = True
-            model_outputs = self._model.field.forward(pos)
-            self._model.field.volumetric_training = False
-        density = self.datamanager.object.t_density(pos)
-        pred_density = model_outputs[FieldHeadNames.DENSITY]
-        plt.plot(z.cpu().numpy(), pred_density.cpu().numpy())
-        plt.savefig('C:/temp/nerfstudio/outputs/sphere_render/method-template/out.png')
-        plt.close()
-        return pred_density, density
+            for _b, _c in zip(b,c):
+                if line == 'x':
+                    pos = torch.stack([a, bc*_b, bc*_c], dim=-1)
+                elif line == 'y':
+                    pos = torch.stack([bc*_b, a, bc*_c], dim=-1)
+                elif line == 'z':
+                    pos = torch.stack([bc*_b, bc*_c, a], dim=-1)
+                pred_density = self._model.field.get_density_from_pos(pos)
+                pred_densities.append(pred_density.cpu().numpy())
+                true_density = self.datamanager.object.t_density(pos)
+                true_densities.append(true_density.cpu().numpy())
+        a = a.cpu().numpy()
+        if engine=='matplotlib':
+            plt.figure(figsize=(6,6))
+            for i in range(len(b)):
+                label = f'y={b[i]}, z={c[i]}' if line == 'x' else f'x={b[i]}, z={c[i]}' if line == 'y' else f'x={b[i]}, y={c[i]}'
+                plt.plot(a, pred_densities[i], label=label, ls='-', color=f'C{i}', alpha=0.7)
+                plt.plot(a, true_densities[i], ls='--', color=f'C{i}', alpha=0.7)
+            plt.legend()
+            if fn is not None:
+                plt.savefig(fn)
+            plt.close()
+        else:
+            raise NotImplementedError("Only matplotlib supported for now")
     
     def eval_along_plane(self, plane='xy', distance=0.5, fn=None, engine='cv'):
         a = torch.linspace(0, 1, 500, device=self.device)
@@ -221,12 +256,10 @@ class TemplatePipeline(VanillaPipeline):
         elif plane == 'xz':
             pos = torch.stack([A, C, B], dim=-1)
         with torch.no_grad():
-            self._model.field.volumetric_training = True
-            model_outputs = self._model.field.forward(pos)
-            self._model.field.volumetric_training = False
-        pred_density = model_outputs[FieldHeadNames.DENSITY]
+            pred_density = self._model.field.get_density_from_pos(pos)
         if engine=='matplotlib':
-            plt.imshow(pred_density.cpu().numpy(), extent=[0,1,0,1], origin='lower', cmap='gray')
+            plt.figure(figsize=(6,6))
+            plt.imshow(pred_density.cpu().numpy(), extent=[0,1,0,1], origin='lower', cmap='gray', vmin=0, vmax=1)
             if fn is not None:
                 plt.savefig(fn)
             plt.close()

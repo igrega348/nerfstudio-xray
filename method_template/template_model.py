@@ -285,7 +285,7 @@ class TemplateModel(Model):
             outputs[f"prop_depth_{i}"] = self.renderer_depth(weights=weights_list[i], ray_samples=ray_samples_list[i])
         return outputs       
 
-    def get_metrics_dict(self, outputs, batch):
+    def get_metrics_dict(self, outputs, batch) -> Dict:
         metrics_dict = {}
         gt_rgb = batch["image"].to(self.device)  # RGB or RGBA image
         gt_rgb = self.renderer_rgb.blend_background(gt_rgb)  # Blend if RGBA
