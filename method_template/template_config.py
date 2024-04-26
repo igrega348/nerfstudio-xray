@@ -34,7 +34,7 @@ method_template = MethodSpecification(
                 dataparser=TemplateDataParserConfig(
                     auto_scale_poses=False,
                     center_method='none',
-                    downscale_factors={'train': 1, 'val': 2},
+                    downscale_factors={'train': 1, 'val': 2, 'test': 2},
                     eval_mode='filename+modulo',
                     # modulo=16,
                     # i0=1
@@ -71,7 +71,7 @@ method_template = MethodSpecification(
         viewer=ViewerConfig(
             num_rays_per_chunk=1 << 15, 
             camera_frustum_scale=0.5,
-            quit_on_train_completion=True,
+            quit_on_train_completion=False,
         ),
         vis="viewer",
     ),

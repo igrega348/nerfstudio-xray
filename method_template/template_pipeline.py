@@ -27,7 +27,7 @@ from nerfstudio.pipelines.base_pipeline import (VanillaPipeline,
                                                 VanillaPipelineConfig)
 from nerfstudio.utils import profiler
 from rich.progress import (BarColumn, MofNCompleteColumn, Progress, TextColumn,
-                           TimeElapsedColumn)
+                           TimeElapsedColumn, TimeRemainingColumn)
 from torch import Tensor
 from torch.cuda.amp.grad_scaler import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -104,10 +104,11 @@ class TemplatePipeline(VanillaPipeline):
         model_outputs = self.model(ray_bundle)
         metrics_dict: Dict
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
-        metrics_dict['volumetric_loss'] = self.calculate_density_loss()
+        if self.datamanager.object is not None:
+            metrics_dict['volumetric_loss'] = self.calculate_density_loss()
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         # evaluate along a few lines
-        self.eval_along_lines(b=[0.5,0.75,0.22,0.21,0.68], c=[0.43,0.79,0.2,0.75,0.3], line='x', fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/balls/method-template/line_{step:04d}.png')
+        # self.eval_along_lines(b=[0.5,0.75,0.22,0.21,0.68], c=[0.43,0.79,0.2,0.75,0.3], line='x', fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/balls/method-template/line_{step:04d}.png')
         self.train()
         return model_outputs, loss_dict, metrics_dict
     
@@ -133,6 +134,7 @@ class TemplatePipeline(VanillaPipeline):
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             TimeElapsedColumn(),
+            TimeRemainingColumn(),
             MofNCompleteColumn(),
             transient=True,
         ) as progress:
@@ -167,9 +169,10 @@ class TemplatePipeline(VanillaPipeline):
                 metrics_dict[key] = float(
                     torch.mean(torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list]))
                 )
-        # evaluate volumetric loss on a 100x100x100 grid
-        density_loss = self.calculate_density_loss()
-        metrics_dict['volumetric_loss'] = density_loss
+        if self.datamanager.object is not None:
+            # evaluate volumetric loss on a 100x100x100 grid
+            density_loss = self.calculate_density_loss()
+            metrics_dict['volumetric_loss'] = density_loss
         self.train()
         return metrics_dict
     

@@ -49,9 +49,13 @@ class TemplateDataManager(VanillaDataManager):
         self.object = None
         if config.data is not None:
             folder = config.data.parent if config.data.suffix=='.json' else config.data
-            yaml_files = list(folder.glob("*.yaml"))
-            assert len(yaml_files) == 1, f"Expected 1 yaml file, got {len(yaml_files)}"
-            self.object = Object.from_yaml(yaml_files[0])
+            try:
+                yaml_files = list(folder.glob("*.yaml"))
+                assert len(yaml_files) == 1, f"Expected 1 yaml file, got {len(yaml_files)}"
+                self.object = Object.from_yaml(yaml_files[0])
+            except AssertionError:
+                self.object = None
+                print("Did not find a yaml file in the data folder. Volumetric loss cannot be computed.")
 
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""

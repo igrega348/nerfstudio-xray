@@ -70,9 +70,11 @@ class TemplateDataParserConfig(DataParserConfig):
     modulo: int = 1
     """Modulo for selecting frames."""
     i0: int = 0
-    """Initial frame."""
+    """Initial frame index."""
+    imax: int = 1 << 28
+    """Maximum frame index."""
 
-def split_files(image_filenames: List, modulo: int, i0: int) -> Tuple[np.ndarray, np.ndarray]:
+def split_files(image_filenames: List, modulo: int, i0: int, imax: int) -> Tuple[np.ndarray, np.ndarray]:
     """
     Get the train/eval split based on the filename of the images.
 
@@ -88,7 +90,7 @@ def split_files(image_filenames: List, modulo: int, i0: int) -> Tuple[np.ndarray
         # check the frame index
         if "train" in basename:
             i = int(basename.split("_")[1])
-            if i % modulo == i0:
+            if i % modulo == i0 and i < imax:
                 i_train.append(idx)
         elif "eval" in basename:
             i_eval.append(idx)
@@ -261,7 +263,7 @@ class TemplateDataParser(Nerfstudio):
             elif self.config.eval_mode == "filename":
                 i_train, i_eval = get_train_eval_split_filename(image_filenames)
             elif self.config.eval_mode == "filename+modulo":
-                i_train, i_eval = split_files(image_filenames, self.config.modulo, self.config.i0)
+                i_train, i_eval = split_files(image_filenames, self.config.modulo, self.config.i0, self.config.imax)
             elif self.config.eval_mode == "interval":
                 i_train, i_eval = get_train_eval_split_interval(image_filenames, self.config.eval_interval)
             elif self.config.eval_mode == "all":
