@@ -247,9 +247,9 @@ class TemplatePipeline(VanillaPipeline):
         else:
             raise NotImplementedError("Only matplotlib supported for now")
     
-    def eval_along_plane(self, plane='xy', distance=0.5, fn=None, engine='cv'):
-        a = torch.linspace(0, 1, 500, device=self.device)
-        b = torch.linspace(0, 1, 500, device=self.device)
+    def eval_along_plane(self, plane='xy', distance=0.5, fn=None, engine='cv', resolution=500):
+        a = torch.linspace(0, 1, resolution, device=self.device)
+        b = torch.linspace(0, 1, resolution, device=self.device)
         A,B = torch.meshgrid(a,b, indexing='ij')
         C = distance*torch.ones_like(A)
         if plane == 'xy':
@@ -266,10 +266,14 @@ class TemplatePipeline(VanillaPipeline):
             if fn is not None:
                 plt.savefig(fn)
             plt.close()
-        elif engine=='cv':
+        elif engine in ['cv', 'opencv']:
             pred_density = pred_density.cpu().numpy()
             # pred_density = (pred_density - pred_density.min())/(pred_density.max() - pred_density.min())
             # pred_density is between 0 and 1 anyways
             pred_density = (pred_density*255).astype(np.uint8)
             if fn is not None:
+                if isinstance(fn, Path):
+                    fn = fn.as_posix()
                 cv.imwrite(fn, pred_density)
+        else:
+            raise ValueError(f"Invalid engine {engine}")
