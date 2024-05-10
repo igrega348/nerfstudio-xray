@@ -38,6 +38,7 @@ from nerfstudio.utils import colormaps
 from torch import Tensor
 from torch.nn import Parameter
 
+from .bsplinefield import BSplineField1d
 from .template_field import TemplateNerfField
 
 
@@ -51,6 +52,11 @@ class TemplateModelConfig(NerfactoModelConfig):
     _target: Type = field(default_factory=lambda: TemplateModel)
     volumetric_training: bool = False
     """whether to train volumetrically or from projections"""
+    # need to add flags for whether field is frozen or displacement is frozen
+    train_density_field: bool = True
+    """whether to train the density field"""
+    train_displacement_field: bool = False
+    """whether to train the displacement field"""
 
 class TemplateModel(Model):
     """Nerfacto model
@@ -93,6 +99,17 @@ class TemplateModel(Model):
             implementation=self.config.implementation,
             volumetric_training=self.config.volumetric_training,
         )
+
+        # Displacement field
+        phi_x = torch.nn.Parameter(torch.zeros(4))
+        self.displacement_field = BSplineField1d(phi_x=phi_x, support_outside=True)
+
+        # frozen or not
+        if not self.config.train_density_field:
+            self.field.requires_grad_(False)
+        if not self.config.train_displacement_field:
+            self.displacement_field.requires_grad_(False)
+
 
         self.camera_optimizer: CameraOptimizer = self.config.camera_optimizer.setup(
             num_cameras=self.num_train_data, device="cpu"
