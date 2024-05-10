@@ -15,15 +15,15 @@ from nerfstudio.engine.schedulers import ExponentialDecaySchedulerConfig
 from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
 
-from method_template.template_datamanager import TemplateDataManagerConfig
-from method_template.template_dataparser import TemplateDataParserConfig
-from method_template.template_model import TemplateModelConfig
-from method_template.template_pipeline import TemplatePipelineConfig
+from nerf_bspline.template_datamanager import TemplateDataManagerConfig
+from nerf_bspline.template_dataparser import TemplateDataParserConfig
+from nerf_bspline.template_model import TemplateModelConfig
+from nerf_bspline.template_pipeline import TemplatePipelineConfig
 
 _volumetric_training = False
-method_template = MethodSpecification(
+nerf_bspline = MethodSpecification(
     config=TrainerConfig(
-        method_name="method-template",  # TODO: rename to your own model
+        method_name="nerf_bspline",  
         steps_per_eval_batch=50,
         steps_per_eval_all_images=10000,
         steps_per_save=5000,

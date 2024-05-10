@@ -1,0 +1,15 @@
+[project]
+name = "nerf-bspline"
+description = "Nerfstudio method for X-ray reconstruction"
+version = "0.1.0"
+
+dependencies = ["nerfstudio >= 0.3.0"] 
+
+[tool.setuptools.packages.find]
+include = ["nerf_bspline*"]
+
+# register the entry point of your new method here:
+[project.entry-points.'nerfstudio.method_configs']
+nerf_bspline = 'nerf_bspline.template_config:nerf_bspline'
+[project.entry-points.'nerfstudio.dataparser_configs']
+xray-temp-dataparser = 'nerf_bspline.parser_config:XrayDataParser'

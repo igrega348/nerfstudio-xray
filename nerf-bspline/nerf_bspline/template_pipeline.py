@@ -33,8 +33,8 @@ from torch import Tensor
 from torch.cuda.amp.grad_scaler import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from method_template.template_datamanager import TemplateDataManagerConfig
-from method_template.template_model import TemplateModel, TemplateModelConfig
+from nerf_bspline.template_datamanager import TemplateDataManagerConfig
+from nerf_bspline.template_model import TemplateModel, TemplateModelConfig
 
 
 @dataclass
