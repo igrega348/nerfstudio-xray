@@ -6,7 +6,7 @@ import typing
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import time
-from typing import Any, Dict, Literal, Optional, Sequence, Tuple, Type
+from typing import Any, Dict, Literal, Optional, Sequence, Tuple, Type, Union
 
 import cv2 as cv
 import matplotlib.pyplot as plt
@@ -26,6 +26,7 @@ from nerfstudio.models.base_model import ModelConfig
 from nerfstudio.pipelines.base_pipeline import (VanillaPipeline,
                                                 VanillaPipelineConfig)
 from nerfstudio.utils import profiler
+from nerfstudio.utils.rich_utils import CONSOLE
 from rich.progress import (BarColumn, MofNCompleteColumn, Progress, TextColumn,
                            TimeElapsedColumn, TimeRemainingColumn)
 from torch import Tensor
@@ -48,6 +49,8 @@ class TemplatePipelineConfig(VanillaPipelineConfig):
     """specifies the model config"""
     volumetric_training: bool = False
     """specifies if the training is volumetric or from projections"""
+    load_density_ckpt: Optional[Path] = None
+    """specifies the path to the density field to load"""
 
 
 class TemplatePipeline(VanillaPipeline):
@@ -84,12 +87,31 @@ class TemplatePipeline(VanillaPipeline):
         )
         self.model.to(device)
 
+        if config.load_density_ckpt is not None:
+            self.load_density_field(config.load_density_ckpt)
+
         self.world_size = world_size
         if world_size > 1:
             self._model = typing.cast(
                 TemplateModel, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True)
             )
             dist.barrier(device_ids=[local_rank])
+
+    def load_density_field(self, ckpt_path: Path) -> None:
+        """Load the checkpoint from the given path
+
+        Args:
+            ckpt_path: path to the checkpoint
+        """
+        assert ckpt_path.exists(), f"Checkpoint {ckpt_path} does not exist"
+        loaded_state = torch.load(ckpt_path, map_location="cpu")
+        loaded_state = loaded_state['pipeline']
+        state = {
+            (key[len("module.") :] if key.startswith("module.") else key): value for key, value in loaded_state.items()
+        }
+        state = {key: value for key, value in state.items() if 'model.field' in key}
+        self.load_state_dict(state)
+        CONSOLE.print(f"Done loading Nerfstudio checkpoint from {ckpt_path}")
 
     @profiler.time_function
     def get_eval_loss_dict(self, step: int) -> Tuple[Any, Dict[str, Any], Dict[str, Any]]:
