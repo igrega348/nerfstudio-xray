@@ -111,7 +111,7 @@ class TemplatePipeline(VanillaPipeline):
         }
         state = {key: value for key, value in state.items() if 'model.field' in key}
         self.load_state_dict(state)
-        CONSOLE.print(f"Done loading Nerfstudio checkpoint from {ckpt_path}")
+        CONSOLE.print(f"Done loading density field from checkpoint {ckpt_path}")
 
     @profiler.time_function
     def get_eval_loss_dict(self, step: int) -> Tuple[Any, Dict[str, Any], Dict[str, Any]]:
@@ -229,12 +229,12 @@ class TemplatePipeline(VanillaPipeline):
             metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
             loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         
-        # if step == 500:
+        # if step == 199:
         #     for z in np.arange(0.0, 1.0, 0.02):
-        #         self.eval_along_plane(plane='xy', distance=z, fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/balls/method-template/slices/out_{z:.3f}.png', engine='matplotlib')
+        #         self.eval_along_plane(plane='yz', distance=z, fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/bspline/nerf_bspline/slices/image_{z:.3f}.png', engine='opencv')
                 # self.eval_along_plane(plane='xy', distance=z, fn=f'C:/temp/nerfstudio/outputs/sphere_render/method-template/slices/out_{z:.3f}.png')
             # _,_ = self.eval_along_line()
-            # self.eval_along_plane(plane='xy')
+            # self.eval_along_plane(plane='yz')
 
         return model_outputs, loss_dict, metrics_dict
     
@@ -281,7 +281,7 @@ class TemplatePipeline(VanillaPipeline):
         elif plane == 'xz':
             pos = torch.stack([A, C, B], dim=-1)
         with torch.no_grad():
-            pred_density = self._model.field.get_density_from_pos(pos)
+            pred_density = self.model.field.get_density_from_pos(pos, deformation_field=self.model.deformation_field)
         if engine=='matplotlib':
             plt.figure(figsize=(6,6))
             plt.imshow(pred_density.cpu().numpy(), extent=[0,1,0,1], origin='lower', cmap='gray', vmin=0, vmax=1)

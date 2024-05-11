@@ -169,6 +169,7 @@ class TemplateDataParser(Nerfstudio):
         height = []
         width = []
         distort = []
+        time = []
 
         # sort the frames by fname
         fnames = []
@@ -215,6 +216,7 @@ class TemplateDataParser(Nerfstudio):
                         p2=float(frame["p2"]) if "p2" in frame else 0.0,
                     )
                 )
+            time.append(int(frame.get('Time', 0))) # for now int. Default value 0
 
             image_filenames.append(fname)
             poses.append(np.array(frame["transform_matrix"]))
@@ -330,6 +332,7 @@ class TemplateDataParser(Nerfstudio):
         cy = float(meta["cy"]) if cy_fixed else torch.tensor(cy, dtype=torch.float32)[idx_tensor]
         height = int(meta["h"]) if height_fixed else torch.tensor(height, dtype=torch.int32)[idx_tensor]
         width = int(meta["w"]) if width_fixed else torch.tensor(width, dtype=torch.int32)[idx_tensor]
+        time = [time[i] for i in idx_tensor] # basic python list
         if distort_fixed:
             distortion_params = (
                 torch.tensor(meta["distortion_params"], dtype=torch.float32)
@@ -407,6 +410,7 @@ class TemplateDataParser(Nerfstudio):
                 "depth_filenames": depth_filenames if len(depth_filenames) > 0 else None,
                 "depth_unit_scale_factor": self.config.depth_unit_scale_factor,
                 "mask_color": self.config.mask_color,
+                "image_timestamps": time,
                 **metadata,
             },
         )

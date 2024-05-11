@@ -39,7 +39,8 @@ nerf_bspline = MethodSpecification(
                     # modulo=16,
                     # i0=1
                 ),
-                train_num_rays_per_batch=4096,
+                train_num_rays_per_batch=2048,
+                # train_num_rays_per_batch=4096,
                 eval_num_rays_per_batch=4096,
             ),
             model=TemplateModelConfig(
@@ -57,6 +58,7 @@ nerf_bspline = MethodSpecification(
                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.0001, max_steps=200000),
             },
+            # could have deformation fields as a separate parameter group
             "fields": {
                 "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=50000),

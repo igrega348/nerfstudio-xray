@@ -3,15 +3,18 @@ Template DataManager
 """
 
 from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
-from typing import Dict, Literal, Tuple, Type, Union
+from typing import Dict, Generic, Literal, Tuple, Type, Union
 
 import torch
 from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.data.datamanagers.base_datamanager import (
     VanillaDataManager, VanillaDataManagerConfig)
+from typing_extensions import TypeVar
 
 from .objects import Object
+from .template_dataset import TemplateDataset
 
 
 @dataclass
@@ -25,7 +28,9 @@ class TemplateDataManagerConfig(VanillaDataManagerConfig):
     train_split_fraction: float = 1.0
 
 
-class TemplateDataManager(VanillaDataManager):
+TDataset = TypeVar("TDataset", bound=TemplateDataset, default=TemplateDataset)
+
+class TemplateDataManager(VanillaDataManager, Generic[TDataset]):
     """Template DataManager
 
     Args:
@@ -33,6 +38,8 @@ class TemplateDataManager(VanillaDataManager):
     """
 
     config: TemplateDataManagerConfig
+    train_dataset: TDataset
+    eval_dataset: TDataset
 
     def __init__(
         self,
@@ -56,6 +63,11 @@ class TemplateDataManager(VanillaDataManager):
             except AssertionError:
                 self.object = None
                 print("Did not find a yaml file in the data folder. Volumetric loss cannot be computed.")
+
+    @cached_property
+    def dataset_type(self) -> Type[TDataset]:
+        """Returns the dataset type passed as the generic argument"""
+        return TemplateDataset
 
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""

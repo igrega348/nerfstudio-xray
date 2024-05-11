@@ -38,7 +38,7 @@ from nerfstudio.utils import colormaps
 from torch import Tensor
 from torch.nn import Parameter
 
-from .bsplinefield import BSplineField1d
+from .bsplinefield import BsplineDeformationField3d
 from .template_field import TemplateNerfField
 
 
@@ -52,11 +52,11 @@ class TemplateModelConfig(NerfactoModelConfig):
     _target: Type = field(default_factory=lambda: TemplateModel)
     volumetric_training: bool = False
     """whether to train volumetrically or from projections"""
-    # need to add flags for whether field is frozen or displacement is frozen
+    # need to add flags for whether field is frozen or deformation is frozen
     train_density_field: bool = True
     """whether to train the density field"""
-    train_displacement_field: bool = False
-    """whether to train the displacement field"""
+    train_deformation_field: bool = False
+    """whether to train the deformation field"""
 
 class TemplateModel(Model):
     """Nerfacto model
@@ -100,15 +100,18 @@ class TemplateModel(Model):
             volumetric_training=self.config.volumetric_training,
         )
 
-        # Displacement field
-        phi_x = torch.nn.Parameter(torch.zeros(4))
-        self.displacement_field = BSplineField1d(phi_x=phi_x, support_outside=True)
+        # 1d displacement field
+        # phi_x = torch.nn.Parameter(torch.zeros(4))
+        # self.deformation_field = BsplineDeformationField(phi_x=phi_x, support_outside=True)
+        # 3d displacement field
+        phi_x = torch.nn.Parameter(torch.zeros(3, 4, 4, 4))
+        self.deformation_field = BsplineDeformationField3d(phi_x=phi_x, support_outside=True)
 
         # frozen or not
         if not self.config.train_density_field:
             self.field.requires_grad_(False)
-        if not self.config.train_displacement_field:
-            self.displacement_field.requires_grad_(False)
+        if not self.config.train_deformation_field:
+            self.deformation_field.requires_grad_(False)
 
 
         self.camera_optimizer: CameraOptimizer = self.config.camera_optimizer.setup(
@@ -196,6 +199,8 @@ class TemplateModel(Model):
         param_groups = {}
         param_groups["proposal_networks"] = list(self.proposal_networks.parameters())
         param_groups["fields"] = list(self.field.parameters())
+        # add deformation field to fields
+        param_groups['fields'].extend(list(self.deformation_field.parameters()))
         self.camera_optimizer.get_param_groups(param_groups=param_groups)
         return param_groups
 
@@ -243,7 +248,7 @@ class TemplateModel(Model):
             ray_bundle: containing all the information needed to render that ray latents included or positions for volumetric training
         """
         if self.training and self.config.volumetric_training:
-            return self.field.forward(ray_bundle)
+            return self.field.forward(ray_bundle, deformation_field=self.deformation_field)
         else:
             if self.collider is not None:
                 ray_bundle = self.collider(ray_bundle)
@@ -256,7 +261,7 @@ class TemplateModel(Model):
             self.camera_optimizer.apply_to_raybundle(ray_bundle)
         ray_samples: RaySamples
         ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
-        field_outputs = self.field.forward(ray_samples, compute_normals=self.config.predict_normals)
+        field_outputs = self.field.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=self.deformation_field)
         if self.config.use_gradient_scaling:
             field_outputs = scale_gradients_by_distance_squared(field_outputs, ray_samples)
 
