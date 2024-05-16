@@ -42,6 +42,7 @@ nerf_bspline = MethodSpecification(
                 train_num_rays_per_batch=2048,
                 # train_num_rays_per_batch=4096,
                 eval_num_rays_per_batch=4096,
+                time_proposal_steps=250,
             ),
             model=TemplateModelConfig(
                 use_appearance_embedding=False,

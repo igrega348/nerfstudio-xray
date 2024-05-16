@@ -141,7 +141,7 @@ class TemplateNerfField(NerfactoField):
                 positions = SceneBox.get_normalized_positions(ray_samples.frustums.get_positions(), self.aabb)
             h_to_shape = ray_samples.frustums.shape
         if deformation_field is not None:
-            positions = deformation_field(positions)
+            positions = deformation_field(positions, ray_samples.times)
         # Make sure the tcnn gets inputs between 0 and 1.
         selector = ((positions > 0.0) & (positions < 1.0)).all(dim=-1)
         positions = positions * selector[..., None]
@@ -164,10 +164,10 @@ class TemplateNerfField(NerfactoField):
         density = density * selector[..., None]
         return density, base_mlp_out
 
-    def get_density_from_pos(self, positions: Tensor, deformation_field: Optional[torch.nn.Module] = None) -> Tensor:
+    def get_density_from_pos(self, positions: Tensor, deformation_field: Optional[torch.nn.Module] = None, time: int = 0) -> Tensor:
         h_to_shape = list(positions.shape[:-1])
         if deformation_field is not None:
-            positions = deformation_field(positions)
+            positions = deformation_field(positions, times=torch.tensor([time]))
         # Make sure the tcnn gets inputs between 0 and 1.
         selector = ((positions > 0.0) & (positions < 1.0)).all(dim=-1)
         positions = positions * selector[..., None]

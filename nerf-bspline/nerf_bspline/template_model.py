@@ -38,7 +38,9 @@ from nerfstudio.utils import colormaps
 from torch import Tensor
 from torch.nn import Parameter
 
-from .bsplinefield import BsplineDeformationField3d
+from .deformation_fields import (AffineTemporalDeformationField,
+                                 BsplineTemporalDeformationField3d,
+                                 IdentityDeformationField)
 from .template_field import TemplateNerfField
 
 
@@ -57,6 +59,8 @@ class TemplateModelConfig(NerfactoModelConfig):
     """whether to train the density field"""
     train_deformation_field: bool = False
     """whether to train the deformation field"""
+    num_timestamps: int = 1
+    """number of timestamps for the deformation field"""
 
 class TemplateModel(Model):
     """Nerfacto model
@@ -104,8 +108,12 @@ class TemplateModel(Model):
         # phi_x = torch.nn.Parameter(torch.zeros(4))
         # self.deformation_field = BsplineDeformationField(phi_x=phi_x, support_outside=True)
         # 3d displacement field
-        phi_x = torch.nn.Parameter(torch.zeros(3, 4, 4, 4))
-        self.deformation_field = BsplineDeformationField3d(phi_x=phi_x, support_outside=True)
+        # num_timestamps = max(self.kwargs['metadata']['image_timestamps']) + 1
+        # phi_x = torch.nn.Parameter(torch.zeros(num_timestamps, 3, 4, 4, 4))
+        self.deformation_field = BsplineTemporalDeformationField3d(num_control_points=(4,4,4), support_outside=True)
+        # self.deformation_field = IdentityDeformationField()
+        # phi = torch.nn.Parameter(torch.zeros(num_timestamps, 3, 3))
+        # self.deformation_field = AffineTemporalDeformationField(A=phi)
 
         # frozen or not
         if not self.config.train_density_field:

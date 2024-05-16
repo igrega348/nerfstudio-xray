@@ -6,7 +6,7 @@ from torch import Tensor
 
 
 class NeuralPhiX(torch.nn.Module):
-    def __init__(self, num_control_points=4, depth=3, width=10):
+    def __init__(self, num_control_points: int = 4, depth: int = 3, width: int = 10):
         super().__init__()
         self.W = torch.nn.Sequential(torch.nn.Linear(1, width), torch.nn.SELU())
         for _ in range(depth-1):
@@ -14,9 +14,9 @@ class NeuralPhiX(torch.nn.Module):
             self.W.append(torch.nn.SELU())
         self.W.append(torch.nn.Linear(width, num_control_points))
         
-
     def forward(self, x):
         return self.W(x)
+    
 class BSplineField1d(torch.nn.Module):
     """1D B-spline field used for prototyping. Differentiable field now
     """
@@ -205,20 +205,59 @@ class BsplineDeformationField3d(torch.nn.Module):
 class BsplineTemporalDeformationField3d(torch.nn.Module):
     def __init__(
             self, 
-            phi_x: Union[Tensor, torch.nn.parameter.Parameter], 
+            phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]]=None, 
             support_outside: bool = False, 
+            num_control_points: Optional[Tuple[int,int,int]]=None
         ) -> None:
         super().__init__()
-        assert phi_x.ndim == 5 # [ntimes, 3, nx, ny, nz]
-        num_control_points = phi_x.shape[2:]
+        if phi_x is not None:
+            assert phi_x.ndim == 5 # [ntimes, 3, nx, ny, nz]
+            num_control_points = phi_x.shape[2:]
+            self.phi_x = phi_x
+        else:
+            assert num_control_points is not None
+            self.phi_x = None
+            self.weight_nn = NeuralPhiX(3*np.prod(num_control_points), 3, 16)
         self.bspline_field = BSplineField3d(support_outside=support_outside, num_control_points=num_control_points)
-        self.phi_x = phi_x
 
-    def forward(self, positions: Tensor, time_idx: int) -> Tensor:
-        # positions [ray, nsamples, 3]
+    def forward(self, positions: Tensor, times: Tensor) -> Tensor:
+        # positions, times of shape [ray, nsamples, 3]
         x0, x1, x2 = positions[...,0].view(-1), positions[...,1].view(-1), positions[...,2].view(-1)
-        phi = self.phi_x[time_idx]
+        uq_times = torch.unique(times)
+        assert len(uq_times)==1
+        if self.phi_x is None:
+            phi = self.weight_nn(uq_times[0].view(-1,1).float()).view(3, *self.bspline_field.grid_size)
+        else:
+            phi = self.phi_x[:uq_times[0]+1].sum(dim=0)
         positions[...,0] += self.bspline_field.displacement(x0, x1, x2, 0, phi_x=phi).view(positions.shape[:-1])
         positions[...,1] += self.bspline_field.displacement(x0, x1, x2, 1, phi_x=phi).view(positions.shape[:-1])
         positions[...,2] += self.bspline_field.displacement(x0, x1, x2, 2, phi_x=phi).view(positions.shape[:-1])
         return positions
+    
+class IdentityDeformationField(torch.nn.Module):
+    def forward(self, x: Tensor, times: Optional[Tensor]) -> Tensor:
+        return x
+    
+class AffineTemporalDeformationField(torch.nn.Module):
+    def __init__(self, A: Union[Tensor, torch.nn.parameter.Parameter]) -> None:
+        super().__init__()
+        self.A = A
+    
+    def forward(self, x: Tensor, times: Optional[Tensor]) -> Tensor:
+        uq_times = torch.unique(times)
+        assert len(uq_times)==1
+        try:
+            _A = self.A[:uq_times[0]+1].sum(dim=0)
+            return x + x @ _A.T
+        except TypeError:
+            return x
+    
+class ComposedDeformationField(torch.nn.Module):
+    def __init__(self, deformation_fields: Iterable[Callable]) -> None:
+        super().__init__()
+        self.deformation_fields = deformation_fields
+    
+    def forward(self, x: Tensor, times: Optional[Tensor]) -> Tensor:
+        for field in self.deformation_fields:
+            x = field(x, times)
+        return x

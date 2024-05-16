@@ -229,6 +229,8 @@ class TemplatePipeline(VanillaPipeline):
             metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
             loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         
+        if step % 199 == 0:
+            torch.save(self._model.deformation_field.state_dict(), f'C:/Users/ig348/Documents/nerfstudio/outputs/bspline/nerf_bspline/deformation_field_{step:04d}.pt')
         # if step == 199:
         #     for z in np.arange(0.0, 1.0, 0.02):
         #         self.eval_along_plane(plane='yz', distance=z, fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/bspline/nerf_bspline/slices/image_{z:.3f}.png', engine='opencv')
