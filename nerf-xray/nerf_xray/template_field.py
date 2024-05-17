@@ -126,7 +126,7 @@ class TemplateNerfField(NerfactoField):
 
         return outputs
     
-    def get_density(self, ray_samples: Union[RaySamples, Tensor]) -> Tuple[Tensor, Tensor]:
+    def get_density(self, ray_samples: Union[RaySamples, Tensor], deformation_field: Optional[torch.nn.Module] = None) -> Tuple[Tensor, Tensor]:
         """Computes and returns the densities."""
         if self.training and self.volumetric_training:
             positions: Tensor
@@ -140,6 +140,8 @@ class TemplateNerfField(NerfactoField):
             else:
                 positions = SceneBox.get_normalized_positions(ray_samples.frustums.get_positions(), self.aabb)
             h_to_shape = ray_samples.frustums.shape
+        if deformation_field is not None:
+            positions = deformation_field(positions, ray_samples.times)
         # Make sure the tcnn gets inputs between 0 and 1.
         selector = ((positions > 0.0) & (positions < 1.0)).all(dim=-1)
         positions = positions * selector[..., None]
@@ -162,8 +164,10 @@ class TemplateNerfField(NerfactoField):
         density = density * selector[..., None]
         return density, base_mlp_out
 
-    def get_density_from_pos(self, positions: Tensor) -> Tensor:
+    def get_density_from_pos(self, positions: Tensor, deformation_field: Optional[torch.nn.Module] = None, time: float = 0.0) -> Tensor:
         h_to_shape = list(positions.shape[:-1])
+        if deformation_field is not None:
+            positions = deformation_field(positions, times=positions.new_tensor([time]))
         # Make sure the tcnn gets inputs between 0 and 1.
         selector = ((positions > 0.0) & (positions < 1.0)).all(dim=-1)
         positions = positions * selector[..., None]
@@ -186,14 +190,14 @@ class TemplateNerfField(NerfactoField):
         density = density * selector[..., None]
         return density
     
-    def forward(self, ray_samples: RaySamples, compute_normals: bool = False) -> Dict[FieldHeadNames, Tensor]:
+    def forward(self, ray_samples: RaySamples, compute_normals: bool = False, deformation_field: Optional[torch.nn.Module] = None) -> Dict[FieldHeadNames, Tensor]:
         """Evaluates the field at points along the ray.
 
         Args:
             ray_samples: Samples to evaluate field on.
         """
         if self.training and self.volumetric_training:
-            density, density_embedding = self.get_density(ray_samples)
+            density, density_embedding = self.get_density(ray_samples, deformation_field)
             field_outputs = {}
             field_outputs[FieldHeadNames.DENSITY] = density  # type: ignore
 
@@ -201,9 +205,9 @@ class TemplateNerfField(NerfactoField):
         else:
             if compute_normals:
                 with torch.enable_grad():
-                    density, density_embedding = self.get_density(ray_samples)
+                    density, density_embedding = self.get_density(ray_samples, deformation_field)
             else:
-                density, density_embedding = self.get_density(ray_samples)
+                density, density_embedding = self.get_density(ray_samples, deformation_field)
 
             field_outputs = self.get_outputs(ray_samples, density_embedding=density_embedding)
             field_outputs[FieldHeadNames.DENSITY] = density  # type: ignore
