@@ -110,8 +110,8 @@ class TemplateModel(Model):
         # 3d displacement field
         # num_timestamps = max(self.kwargs['metadata']['image_timestamps']) + 1
         # phi_x = torch.nn.Parameter(torch.zeros(num_timestamps, 3, 4, 4, 4))
-        self.deformation_field = BsplineTemporalDeformationField3d(num_control_points=(4,4,4), support_outside=True)
-        # self.deformation_field = IdentityDeformationField()
+        # self.deformation_field = BsplineTemporalDeformationField3d(num_control_points=(4,4,4), support_outside=True)
+        self.deformation_field = IdentityDeformationField()
         # phi = torch.nn.Parameter(torch.zeros(num_timestamps, 3, 3))
         # self.deformation_field = AffineTemporalDeformationField(A=phi)
 

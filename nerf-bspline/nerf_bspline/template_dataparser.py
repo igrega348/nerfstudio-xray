@@ -73,9 +73,9 @@ class TemplateDataParserConfig(DataParserConfig):
     """Initial frame index."""
     imax: int = 1 << 28
     """Maximum frame index."""
-    min_timestamp: int = 0
+    min_timestamp: float = 0.0
     """Minimum timestamp for frames."""
-    max_timestamp: int = 1 << 28
+    max_timestamp: float = 1e10
     """Maximum timestamp for frames."""
 
 def split_files(image_filenames: List, modulo: int, i0: int, imax: int) -> Tuple[np.ndarray, np.ndarray]:
@@ -224,7 +224,7 @@ class TemplateDataParser(Nerfstudio):
                         p2=float(frame["p2"]) if "p2" in frame else 0.0,
                     )
                 )
-            times.append(int(frame.get('time', 0))) # for now int. Default value 0
+            times.append(float(frame.get('time', 0.0))) # covert to float. Default value 0
 
             image_filenames.append(fname)
             poses.append(np.array(frame["transform_matrix"]))
@@ -340,7 +340,7 @@ class TemplateDataParser(Nerfstudio):
         cy = float(meta["cy"]) if cy_fixed else torch.tensor(cy, dtype=torch.float32)[idx_tensor]
         height = int(meta["h"]) if height_fixed else torch.tensor(height, dtype=torch.int32)[idx_tensor]
         width = int(meta["w"]) if width_fixed else torch.tensor(width, dtype=torch.int32)[idx_tensor]
-        times = torch.tensor(times, dtype=torch.int32)[idx_tensor]
+        times = torch.tensor(times, dtype=torch.float32)[idx_tensor]
         if distort_fixed:
             distortion_params = (
                 torch.tensor(meta["distortion_params"], dtype=torch.float32)

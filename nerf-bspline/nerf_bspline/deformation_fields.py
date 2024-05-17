@@ -226,7 +226,7 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
         uq_times = torch.unique(times)
         assert len(uq_times)==1
         if self.phi_x is None:
-            phi = self.weight_nn(uq_times[0].view(-1,1).float()).view(3, *self.bspline_field.grid_size)
+            phi = self.weight_nn(uq_times[0].view(-1,1)).view(3, *self.bspline_field.grid_size)
         else:
             phi = self.phi_x[:uq_times[0]+1].sum(dim=0)
         positions[...,0] += self.bspline_field.displacement(x0, x1, x2, 0, phi_x=phi).view(positions.shape[:-1])

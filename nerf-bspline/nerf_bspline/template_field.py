@@ -164,10 +164,10 @@ class TemplateNerfField(NerfactoField):
         density = density * selector[..., None]
         return density, base_mlp_out
 
-    def get_density_from_pos(self, positions: Tensor, deformation_field: Optional[torch.nn.Module] = None, time: int = 0) -> Tensor:
+    def get_density_from_pos(self, positions: Tensor, deformation_field: Optional[torch.nn.Module] = None, time: float = 0.0) -> Tensor:
         h_to_shape = list(positions.shape[:-1])
         if deformation_field is not None:
-            positions = deformation_field(positions, times=torch.tensor([time]))
+            positions = deformation_field(positions, times=positions.new_tensor([time]))
         # Make sure the tcnn gets inputs between 0 and 1.
         selector = ((positions > 0.0) & (positions < 1.0)).all(dim=-1)
         positions = positions * selector[..., None]
