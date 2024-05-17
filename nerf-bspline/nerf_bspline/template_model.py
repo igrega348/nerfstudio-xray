@@ -61,6 +61,8 @@ class TemplateModelConfig(NerfactoModelConfig):
     """whether to train the deformation field"""
     num_timestamps: int = 1
     """number of timestamps for the deformation field"""
+    deformation_field: Literal["temporal_bspline", "identity"] = "identity"
+    """type of deformation field"""
 
 class TemplateModel(Model):
     """Nerfacto model
@@ -104,18 +106,14 @@ class TemplateModel(Model):
             volumetric_training=self.config.volumetric_training,
         )
 
-        # 1d displacement field
-        # phi_x = torch.nn.Parameter(torch.zeros(4))
-        # self.deformation_field = BsplineDeformationField(phi_x=phi_x, support_outside=True)
-        # 3d displacement field
-        # num_timestamps = max(self.kwargs['metadata']['image_timestamps']) + 1
-        # phi_x = torch.nn.Parameter(torch.zeros(num_timestamps, 3, 4, 4, 4))
-        # self.deformation_field = BsplineTemporalDeformationField3d(num_control_points=(4,4,4), support_outside=True)
-        self.deformation_field = IdentityDeformationField()
-        # phi = torch.nn.Parameter(torch.zeros(num_timestamps, 3, 3))
-        # self.deformation_field = AffineTemporalDeformationField(A=phi)
+        if self.config.deformation_field == "temporal_bspline":
+            self.deformation_field = BsplineTemporalDeformationField3d(num_control_points=(4,4,4), support_outside=True)
+        elif self.config.deformation_field == "identity":
+            self.deformation_field = IdentityDeformationField()
+        else:
+            raise ValueError(f"Unknown deformation field type: {self.config.deformation_field}")
 
-        # frozen or not
+        # train density or deformation field
         if not self.config.train_density_field:
             self.field.requires_grad_(False)
         if not self.config.train_deformation_field:
