@@ -123,7 +123,7 @@ class UnitCell(Object):
     def density(self, pos: torch.Tensor):
         assert pos.ndim == 2 and pos.size(1) == 3, f"Expected (N, 3) tensor, got {pos.size()}"
         rho = pos.new_zeros(pos.size(0))
-        mask = torch.all(pos >= self.min_lims, dim=-1) & torch.all(pos <= self.max_lims, dim=-1)
+        mask = torch.all(pos >= self.min_lims.to(pos), dim=-1) & torch.all(pos <= self.max_lims.to(pos), dim=-1)
         rho[mask] = self.struts.density(pos[mask])
         return rho
     
@@ -137,14 +137,14 @@ class TessellatedObjColl(Object):
         self.max_lims = max_lims.reshape(1,3)  # Maximum limits of the bounding box
 
     def remap(self, pos: torch.Tensor):
-        dd = self.uc.max_lims - self.uc.min_lims # (1,3)
-        pos = pos - torch.floor((pos - self.uc.min_lims) / dd) * dd 
+        dd = (self.uc.max_lims - self.uc.min_lims).to(pos) # (1,3)
+        pos = pos - torch.floor((pos - self.uc.min_lims.to(pos)) / dd) * dd 
         return pos
 
     def density(self, pos: torch.Tensor):
         assert pos.ndim == 2 and pos.size(1) == 3, f"Expected (N, 3) tensor, got {pos.size()}"
         rho = pos.new_zeros(pos.size(0))
-        mask = torch.all(pos >= self.min_lims, dim=-1) & torch.all(pos <= self.max_lims, dim=-1)
+        mask = torch.all(pos >= self.min_lims.to(pos), dim=-1) & torch.all(pos <= self.max_lims.to(pos), dim=-1)
 
         pos_remapped = self.remap(pos[mask])
         # Remap point to unit cell space

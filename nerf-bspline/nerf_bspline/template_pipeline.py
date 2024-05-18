@@ -125,9 +125,11 @@ class TemplatePipeline(VanillaPipeline):
         ray_bundle, batch = self.datamanager.next_eval(step)
         model_outputs = self.model(ray_bundle)
         metrics_dict: Dict
+        self.eval() # somehow the functions below things we're training
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
         if self.datamanager.object is not None:
-            metrics_dict['volumetric_loss'] = self.calculate_density_loss()
+            metrics_dict.update(self.calculate_density_loss())
+        self.eval() # somehow the functions below things we're training
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         # evaluate along a few lines
         # self.eval_along_lines(b=[0.5,0.75,0.22,0.21,0.68], c=[0.43,0.79,0.2,0.75,0.3], line='x', fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/balls/method-template/line_{step:04d}.png')
@@ -193,8 +195,7 @@ class TemplatePipeline(VanillaPipeline):
                 )
         if self.datamanager.object is not None:
             # evaluate volumetric loss on a 100x100x100 grid
-            density_loss = self.calculate_density_loss()
-            metrics_dict['volumetric_loss'] = density_loss
+            metrics_dict.update(self.calculate_density_loss())
         self.train()
         return metrics_dict
     
@@ -205,7 +206,10 @@ class TemplatePipeline(VanillaPipeline):
             pred_density = self._model.field.get_density_from_pos(pos).squeeze()
         density = self.datamanager.object.t_density(pos)
         density_loss = torch.nn.functional.mse_loss(pred_density, density).item()
-        return density_loss
+        density_n = (density - density.min()) / (density.max() - density.min())
+        pred_dens_n = (pred_density - pred_density.min()) / (pred_density.max() - pred_density.min())
+        scaled_density_loss = torch.nn.functional.mse_loss(pred_dens_n, density_n).item()
+        return {'volumetric_loss': density_loss, 'scaled_volumetric_loss': scaled_density_loss}
 
     @profiler.time_function
     def get_train_loss_dict(self, step: int):
@@ -229,8 +233,8 @@ class TemplatePipeline(VanillaPipeline):
             metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
             loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         
-        if step % 199 == 0:
-            torch.save(self._model.deformation_field.state_dict(), f'C:/Users/ig348/Documents/nerfstudio/outputs/bspline/nerf_bspline/deformation_field_{step:04d}.pt')
+        # if step % 199 == 0:
+        #     torch.save(self._model.deformation_field.state_dict(), f'C:/Users/ig348/Documents/nerfstudio/outputs/bspline/nerf_bspline/deformation_field_{step:04d}.pt')
         # if step == 199:
         #     for z in np.arange(0.0, 1.0, 0.02):
         #         self.eval_along_plane(plane='yz', distance=z, fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/bspline/nerf_bspline/slices/image_{z:.3f}.png', engine='opencv')
