@@ -1,6 +1,6 @@
 from abc import abstractmethod
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Union
 
 import numpy as np
 import torch
@@ -36,6 +36,18 @@ class Object:
             return Cylinder(torch.tensor(d["p0"]), torch.tensor(d["p1"]), d["radius"], d["rho"])
         if d["type"] == "object_collection":
             return ObjectCollection(Object.from_dict(o) for o in d["objects"])
+        if d['type'] == 'unit_cell':
+            return UnitCell(
+                struts=Object.from_dict(d['struts']), 
+                min_lims=torch.tensor([d['xmin'], d['ymin'], d['zmin']]), 
+                max_lims=torch.tensor([d['xmax'], d['ymax'], d['zmax']])
+            )
+        if d['type'] == 'tessellated_obj_coll':
+            return TessellatedObjColl(
+                uc=Object.from_dict(d['uc']),
+                min_lims=torch.tensor([d['xmin'], d['ymin'], d['zmin']]),
+                max_lims=torch.tensor([d['xmax'], d['ymax'], d['zmax']])
+            )
         raise ValueError(f"Unknown object type: {d['type']}")
 
 class ObjectCollection(Object):
@@ -100,4 +112,41 @@ class Cylinder(Object):
         d = torch.norm((p - p0) - a[..., None] * v, dim=-1)
         rho = pos.new_zeros(d.size())
         rho[mask_inside & (d < self.radius)] = self.rho
+        return rho
+    
+class UnitCell(Object):
+    def __init__(self, struts: ObjectCollection, min_lims: torch.Tensor, max_lims: torch.Tensor):
+        self.struts = struts
+        self.min_lims = min_lims.reshape(1,3)
+        self.max_lims = max_lims.reshape(1,3)
+
+    def density(self, pos: torch.Tensor):
+        assert pos.ndim == 2 and pos.size(1) == 3, f"Expected (N, 3) tensor, got {pos.size()}"
+        rho = pos.new_zeros(pos.size(0))
+        mask = torch.all(pos >= self.min_lims, dim=-1) & torch.all(pos <= self.max_lims, dim=-1)
+        rho[mask] = self.struts.density(pos[mask])
+        return rho
+    
+class TessellatedObjColl(Object):
+    """
+    Represents a tessellated object collection with a unit cell and bounding box.
+    """
+    def __init__(self, uc: UnitCell, min_lims: torch.Tensor, max_lims: torch.Tensor):
+        self.uc = uc  # UnitCell object
+        self.min_lims = min_lims.reshape(1,3)  # Minimum limits of the bounding box
+        self.max_lims = max_lims.reshape(1,3)  # Maximum limits of the bounding box
+
+    def remap(self, pos: torch.Tensor):
+        dd = self.uc.max_lims - self.uc.min_lims # (1,3)
+        pos = pos - torch.floor((pos - self.uc.min_lims) / dd) * dd 
+        return pos
+
+    def density(self, pos: torch.Tensor):
+        assert pos.ndim == 2 and pos.size(1) == 3, f"Expected (N, 3) tensor, got {pos.size()}"
+        rho = pos.new_zeros(pos.size(0))
+        mask = torch.all(pos >= self.min_lims, dim=-1) & torch.all(pos <= self.max_lims, dim=-1)
+
+        pos_remapped = self.remap(pos[mask])
+        # Remap point to unit cell space
+        rho[mask] = self.uc.density(pos_remapped)
         return rho
