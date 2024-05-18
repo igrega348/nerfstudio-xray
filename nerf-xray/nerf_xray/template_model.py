@@ -39,6 +39,7 @@ from torch import Tensor
 from torch.nn import Parameter
 
 from .template_field import TemplateNerfField
+from .xray_renderer import AttenuationRenderer
 
 
 @dataclass
@@ -157,6 +158,7 @@ class TemplateModel(Model):
         self.renderer_depth = DepthRenderer(method="median")
         self.renderer_expected_depth = DepthRenderer(method="expected")
         self.renderer_normals = NormalsRenderer()
+        self.renderer_attenuation = AttenuationRenderer()
 
         # shaders
         self.normals_shader = NormalsShader()
@@ -247,17 +249,19 @@ class TemplateModel(Model):
         weights_list.append(weights)
         ray_samples_list.append(ray_samples)
 
-        rgb = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB], weights=weights)
+        # rgb = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB], weights=weights)
         with torch.no_grad():
             depth = self.renderer_depth(weights=weights, ray_samples=ray_samples)
         expected_depth = self.renderer_expected_depth(weights=weights, ray_samples=ray_samples)
         accumulation = self.renderer_accumulation(weights=weights)
+        attenuation = self.renderer_attenuation(densities=field_outputs[FieldHeadNames.DENSITY], ray_samples=ray_samples)
 
         outputs = {
-            "rgb": rgb,
+            "rgb": attenuation*attenuation.new_ones(1,3), # replace by attenuation
             "accumulation": accumulation,
             "depth": depth,
             "expected_depth": expected_depth,
+            "attenuation": attenuation,
         }
 
         if self.config.predict_normals:

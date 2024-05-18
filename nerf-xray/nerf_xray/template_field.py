@@ -103,27 +103,6 @@ class TemplateNerfField(NerfactoField):
         outputs = {}
         if ray_samples.camera_indices is None:
             raise AttributeError("Camera indices are not provided.")
-        camera_indices = ray_samples.camera_indices.squeeze()
-        directions = get_normalized_directions(ray_samples.frustums.directions)
-        directions_flat = directions.view(-1, 3)
-        d = self.direction_encoding(directions_flat)
-
-        outputs_shape = ray_samples.frustums.directions.shape[:-1]
-
-        # h = torch.cat(
-        #     [
-        #         d,
-        #         density_embedding.view(-1, self.geo_feat_dim),
-        #     ]
-        #     + (
-        #         [embedded_appearance.view(-1, self.appearance_embedding_dim)] if embedded_appearance is not None else []
-        #     ),
-        #     dim=-1,
-        # )
-        # rgb = self.mlp_head(h).view(*outputs_shape, -1).to(directions)
-        rgb = torch.zeros((*outputs_shape, 3)).to(directions)
-        outputs.update({FieldHeadNames.RGB: rgb})
-
         return outputs
     
     def get_density(self, ray_samples: Union[RaySamples, Tensor], deformation_field: Optional[torch.nn.Module] = None) -> Tuple[Tensor, Tensor]:

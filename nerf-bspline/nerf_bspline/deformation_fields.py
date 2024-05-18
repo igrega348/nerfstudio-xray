@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Iterable, Optional, Tuple, Union
+from typing import Callable, Dict, Iterable, Optional, Tuple, Union, List
 
 import numpy as np
 import torch
@@ -31,7 +31,13 @@ class BSplineField1d(torch.nn.Module):
         elif i == 3:
             return u**3 / 6
         
-    def __init__(self, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None, support_outside: bool = False, num_control_points: Optional[int] = None) -> None:
+    def __init__(
+            self, 
+            phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None, 
+            support_outside: bool = False, 
+            support_range: Optional[Tuple[float,float]] = None,
+            num_control_points: Optional[int] = None
+        ) -> None:
         super().__init__()
         assert phi_x is not None or num_control_points is not None
         if phi_x is not None:
@@ -39,9 +45,14 @@ class BSplineField1d(torch.nn.Module):
             assert phi_x.shape[0] > 3
             num_control_points = phi_x.shape[0]
         self.phi_x = phi_x
-        # provide support over -1 to 1
-        self.dx = 2/(num_control_points-3)
-        self.origin = -1 - self.dx
+        if support_range is None:
+            # provide support over -1 to 1
+            self.dx = 2/(num_control_points-3)
+            self.origin = -1 - self.dx
+        else:
+            support_min, support_max = support_range
+            self.dx = (support_max - support_min) / (num_control_points-3)
+            self.origin = support_min - self.dx
         self.support_outside = support_outside
 
     def displacement(self, _t: Tensor, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None) -> Tensor:
@@ -112,6 +123,7 @@ class BSplineField3d(torch.nn.Module):
             self, 
             phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None,
             support_outside: bool = False,
+            support_range: Optional[List[Tuple[float,float]]] = None,
             num_control_points: Optional[Tuple[int,int,int]] = None
     ) -> None:
         """Set up the B-spline field.
@@ -131,9 +143,16 @@ class BSplineField3d(torch.nn.Module):
         self.phi_x = phi_x
         nx,ny,nz = num_control_points
         self.grid_size = np.array([nx, ny, nz])
-        # provide support for range -1 to 1 along each dimension
-        self.spacing = 2 / (self.grid_size - 3)
-        self.origin = -1 - self.spacing
+        if support_range is None:
+            # provide support for range -1 to 1 along each dimension
+            self.spacing = 2 / (self.grid_size - 3)
+            self.origin = -1 - self.spacing
+        else:
+            assert len(support_range) == 3 and all(len(r)==2 for r in support_range)
+            support_min = np.array([r[0] for r in support_range])
+            support_max = np.array([r[1] for r in support_range])
+            self.spacing = (support_max - support_min) / (self.grid_size - 3)
+            self.origin = support_min - self.spacing
         self.support_outside = support_outside
 
     def __repr__(self) -> str:
@@ -189,10 +208,11 @@ class BsplineDeformationField3d(torch.nn.Module):
             self, 
             phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None, 
             support_outside: bool = False, 
+            support_range: Optional[List[Tuple[float,float]]] = None,
             num_control_points: Optional[Tuple[int,int,int]] = None
         ) -> None:
         super().__init__()
-        self.bspline_field = BSplineField3d(phi_x, support_outside, num_control_points)
+        self.bspline_field = BSplineField3d(phi_x, support_outside, support_range, num_control_points)
     
     def forward(self, x: Tensor) -> Tensor:
         # x [ray, nsamples, 3]
@@ -207,6 +227,7 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
             self, 
             phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]]=None, 
             support_outside: bool = False, 
+            support_range: Optional[List[Tuple[float,float]]]=None,
             num_control_points: Optional[Tuple[int,int,int]]=None
         ) -> None:
         super().__init__()
@@ -218,7 +239,7 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
             assert num_control_points is not None
             self.phi_x = None
             self.weight_nn = NeuralPhiX(3*np.prod(num_control_points), 3, 16)
-        self.bspline_field = BSplineField3d(support_outside=support_outside, num_control_points=num_control_points)
+        self.bspline_field = BSplineField3d(support_outside=support_outside, support_range=support_range, num_control_points=num_control_points)
 
     def forward(self, positions: Tensor, times: Tensor) -> Tensor:
         # positions, times of shape [ray, nsamples, 3]

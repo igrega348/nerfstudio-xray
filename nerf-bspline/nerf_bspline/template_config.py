@@ -35,9 +35,7 @@ nerf_bspline = MethodSpecification(
                     auto_scale_poses=False,
                     center_method='none',
                     downscale_factors={'train': 1, 'val': 2, 'test': 2},
-                    eval_mode='filename+modulo',
-                    # modulo=16,
-                    # i0=1
+                    eval_mode='filename+modulo'
                 ),
                 train_num_rays_per_batch=2048,
                 # train_num_rays_per_batch=4096,

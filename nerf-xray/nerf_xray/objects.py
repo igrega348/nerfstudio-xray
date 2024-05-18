@@ -1,6 +1,6 @@
 from abc import abstractmethod
 from pathlib import Path
-from typing import Iterable, Union
+from typing import Iterable, List, Union
 
 import numpy as np
 import torch
@@ -48,6 +48,8 @@ class Object:
                 min_lims=torch.tensor([d['xmin'], d['ymin'], d['zmin']]),
                 max_lims=torch.tensor([d['xmax'], d['ymax'], d['zmax']])
             )
+        if d['type'] == 'box':
+            return Box(d['center'], d['sides'], d['rho'])
         raise ValueError(f"Unknown object type: {d['type']}")
 
 class ObjectCollection(Object):
@@ -149,4 +151,19 @@ class TessellatedObjColl(Object):
         pos_remapped = self.remap(pos[mask])
         # Remap point to unit cell space
         rho[mask] = self.uc.density(pos_remapped)
+        return rho
+    
+class Box(Object):
+    def __init__(self, center: List[float], sides: List[float], rho: float):
+        self.center = center
+        self.sides = sides
+        self.rho = rho
+        
+    def density(self, pos: torch.Tensor):
+        x = torch.abs(pos[:, 0] - self.center[0])
+        y = torch.abs(pos[:, 1] - self.center[1])
+        z = torch.abs(pos[:, 2] - self.center[2])
+        mask_inside = (x < 0.5*self.sides[0]) & (y < 0.5*self.sides[1]) & (z < 0.5*self.sides[2])
+        rho = pos.new_zeros(mask_inside.size())
+        rho[mask_inside] = self.rho
         return rho
