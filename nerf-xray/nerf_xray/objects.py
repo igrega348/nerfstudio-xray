@@ -1,6 +1,6 @@
 from abc import abstractmethod
 from pathlib import Path
-from typing import Iterable, Union
+from typing import Iterable, List, Union
 
 import numpy as np
 import torch
@@ -48,6 +48,8 @@ class Object:
                 min_lims=torch.tensor([d['xmin'], d['ymin'], d['zmin']]),
                 max_lims=torch.tensor([d['xmax'], d['ymax'], d['zmax']])
             )
+        if d['type'] == 'box':
+            return Box(d['center'], d['sides'], d['rho'])
         raise ValueError(f"Unknown object type: {d['type']}")
 
 class ObjectCollection(Object):
@@ -123,7 +125,7 @@ class UnitCell(Object):
     def density(self, pos: torch.Tensor):
         assert pos.ndim == 2 and pos.size(1) == 3, f"Expected (N, 3) tensor, got {pos.size()}"
         rho = pos.new_zeros(pos.size(0))
-        mask = torch.all(pos >= self.min_lims, dim=-1) & torch.all(pos <= self.max_lims, dim=-1)
+        mask = torch.all(pos >= self.min_lims.to(pos), dim=-1) & torch.all(pos <= self.max_lims.to(pos), dim=-1)
         rho[mask] = self.struts.density(pos[mask])
         return rho
     
@@ -137,16 +139,31 @@ class TessellatedObjColl(Object):
         self.max_lims = max_lims.reshape(1,3)  # Maximum limits of the bounding box
 
     def remap(self, pos: torch.Tensor):
-        dd = self.uc.max_lims - self.uc.min_lims # (1,3)
-        pos = pos - torch.floor((pos - self.uc.min_lims) / dd) * dd 
+        dd = (self.uc.max_lims - self.uc.min_lims).to(pos) # (1,3)
+        pos = pos - torch.floor((pos - self.uc.min_lims.to(pos)) / dd) * dd 
         return pos
 
     def density(self, pos: torch.Tensor):
         assert pos.ndim == 2 and pos.size(1) == 3, f"Expected (N, 3) tensor, got {pos.size()}"
         rho = pos.new_zeros(pos.size(0))
-        mask = torch.all(pos >= self.min_lims, dim=-1) & torch.all(pos <= self.max_lims, dim=-1)
+        mask = torch.all(pos >= self.min_lims.to(pos), dim=-1) & torch.all(pos <= self.max_lims.to(pos), dim=-1)
 
         pos_remapped = self.remap(pos[mask])
         # Remap point to unit cell space
         rho[mask] = self.uc.density(pos_remapped)
+        return rho
+    
+class Box(Object):
+    def __init__(self, center: List[float], sides: List[float], rho: float):
+        self.center = center
+        self.sides = sides
+        self.rho = rho
+        
+    def density(self, pos: torch.Tensor):
+        x = torch.abs(pos[:, 0] - self.center[0])
+        y = torch.abs(pos[:, 1] - self.center[1])
+        z = torch.abs(pos[:, 2] - self.center[2])
+        mask_inside = (x < 0.5*self.sides[0]) & (y < 0.5*self.sides[1]) & (z < 0.5*self.sides[2])
+        rho = pos.new_zeros(mask_inside.size())
+        rho[mask_inside] = self.rho
         return rho

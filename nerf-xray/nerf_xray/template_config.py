@@ -71,7 +71,7 @@ nerf_xray = MethodSpecification(
         viewer=ViewerConfig(
             num_rays_per_chunk=1 << 15, 
             camera_frustum_scale=0.5,
-            quit_on_train_completion=False,
+            quit_on_train_completion=True,
         ),
         vis="viewer",
     ),
