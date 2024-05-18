@@ -67,18 +67,18 @@ class TemplateDataParserConfig(DataParserConfig):
     load_3D_points: bool = False
     """Whether to load the 3D points from the colmap reconstruction."""
     ###### Add my custom parameters here ######
-    modulo: int = 1
-    """Modulo for selecting frames."""
-    i0: int = 0
-    """Initial frame index."""
+    imin: int = 0
+    """Minimum frame index."""
     imax: int = 1 << 28
     """Maximum frame index."""
+    istep: int = 1
+    """Step in frame index."""
     min_timestamp: float = 0.0
     """Minimum timestamp for frames."""
     max_timestamp: float = 1e10
     """Maximum timestamp for frames."""
 
-def split_files(image_filenames: List, modulo: int, i0: int, imax: int) -> Tuple[np.ndarray, np.ndarray]:
+def split_files(image_filenames: List, imin: int, imax: int, istep: int) -> Tuple[np.ndarray, np.ndarray]:
     """
     Get the train/eval split based on the filename of the images.
 
@@ -94,7 +94,7 @@ def split_files(image_filenames: List, modulo: int, i0: int, imax: int) -> Tuple
         # check the frame index
         if "train" in basename:
             i = int(basename.split("_")[1])
-            if i % modulo == i0 and i < imax:
+            if i >= imin and i <= imax and (i - imin) % istep == 0:
                 i_train.append(idx)
         elif "eval" in basename:
             i_eval.append(idx)
@@ -273,7 +273,7 @@ class TemplateDataParser(Nerfstudio):
             elif self.config.eval_mode == "filename":
                 i_train, i_eval = get_train_eval_split_filename(image_filenames)
             elif self.config.eval_mode == "filename+modulo":
-                i_train, i_eval = split_files(image_filenames, self.config.modulo, self.config.i0, self.config.imax)
+                i_train, i_eval = split_files(image_filenames, self.config.imin, self.config.imax, self.config.istep)
             elif self.config.eval_mode == "interval":
                 i_train, i_eval = get_train_eval_split_interval(image_filenames, self.config.eval_interval)
             elif self.config.eval_mode == "all":
