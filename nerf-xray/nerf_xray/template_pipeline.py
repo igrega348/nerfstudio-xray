@@ -47,8 +47,10 @@ class TemplatePipelineConfig(VanillaPipelineConfig):
     """specifies the datamanager config"""
     model: ModelConfig = TemplateModelConfig()
     """specifies the model config"""
-    volumetric_training: bool = False
-    """specifies if the training is volumetric or from projections"""
+    volumetric_supervision: bool = False
+    """specifies if the training gets volumetric supervision"""
+    volumetric_supervision_start_step: int = 100
+    """start providing volumetric supervision at this step"""
     load_density_ckpt: Optional[Path] = None
     """specifies the path to the density field to load"""
 
@@ -197,20 +199,23 @@ class TemplatePipeline(VanillaPipeline):
         self.train()
         return metrics_dict
     
-    def calculate_density_loss(self):
-        pos = torch.linspace(-1, 1, 200, device=self.device) # scene box goes between -1 and 1 
-        pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
-        with torch.no_grad():
-            pred_density = self._model.field.get_density_from_pos(pos).squeeze()
+    def calculate_density_loss(self, sampling: str = 'grid'):
+        if sampling=='grid':
+            pos = torch.linspace(-1, 1, 200, device=self.device) # scene box goes between -1 and 1 
+            pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
+        elif sampling=='random':
+            pos = 2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0
+        pred_density = self._model.field.get_density_from_pos(pos).squeeze() # remove nograd here so can use in training
         density = self.datamanager.object.density(pos) # density between -1 and 1
+        
         x = density
         y = pred_density
 
-        density_loss = torch.nn.functional.mse_loss(y, x).item()
+        density_loss = torch.nn.functional.mse_loss(y, x)
 
         density_n = (x - x.min()) / (x.max() - x.min())
         pred_dens_n = (y - y.min()) / (y.max() - y.min())
-        scaled_density_loss = torch.nn.functional.mse_loss(pred_dens_n, density_n).item()
+        scaled_density_loss = torch.nn.functional.mse_loss(pred_dens_n, density_n)
         
         mux = x.mean()
         muy = y.mean()
@@ -220,7 +225,7 @@ class TemplatePipeline(VanillaPipeline):
         return {
             'volumetric_loss': density_loss, 
             'scaled_volumetric_loss': scaled_density_loss,
-            'normed_correlation': normed_correlation.item()
+            'normed_correlation': normed_correlation
             }
 
     @profiler.time_function
@@ -232,20 +237,15 @@ class TemplatePipeline(VanillaPipeline):
         Args:
             step: current iteration step to update sampler if using DDP (distributed)
         """
-        if self.config.volumetric_training:
-            # sample positions
-            pos = 2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0
-            density = self.datamanager.object.density(pos).view(-1)
-            pred_density = self._model.field.get_density_from_pos(pos) # train distributed data parallel model if world_size > 1
-            loss_dict = {'loss': torch.nn.functional.mse_loss(pred_density.view(-1), density.view(-1))}
-            metrics_dict = {}
-            model_outputs = {}
-            model_outputs[FieldHeadNames.DENSITY] = pred_density
-        else:
-            ray_bundle, batch = self.datamanager.next_train(step)
-            model_outputs = self._model(ray_bundle)  # train distributed data parallel model if world_size > 1
-            metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
-            loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
+        ray_bundle, batch = self.datamanager.next_train(step)
+        model_outputs = self._model(ray_bundle)  # train distributed data parallel model if world_size > 1
+        metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
+        loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
+        
+        if self.config.volumetric_supervision and step>100:
+            # provide supervision to visual training. Use cross-corelation loss
+            density_loss = self.calculate_density_loss(sampling='random')
+            loss_dict['volumetric_loss'] = -0.01*density_loss['normed_correlation']
 
         return model_outputs, loss_dict, metrics_dict
     

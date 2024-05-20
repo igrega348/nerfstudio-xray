@@ -47,7 +47,7 @@ nerf_xray = MethodSpecification(
                 eval_num_rays_per_chunk=1 << 15,
                 disable_scene_contraction=True,
             ),
-            volumetric_training=False,
+            volumetric_supervision=False,
         ),
         optimizers={
             # TODO: consider changing optimizers depending on your custom method
