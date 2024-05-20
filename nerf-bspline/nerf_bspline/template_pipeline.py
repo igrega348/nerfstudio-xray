@@ -47,8 +47,10 @@ class TemplatePipelineConfig(VanillaPipelineConfig):
     """specifies the datamanager config"""
     model: ModelConfig = TemplateModelConfig()
     """specifies the model config"""
-    volumetric_training: bool = False
-    """specifies if the training is volumetric or from projections"""
+    volumetric_supervision: bool = False
+    """specifies if the training gets volumetric supervision"""
+    volumetric_supervision_start_step: int = 100
+    """start providing volumetric supervision at this step"""
     load_density_ckpt: Optional[Path] = None
     """specifies the path to the density field to load"""
 
@@ -111,7 +113,7 @@ class TemplatePipeline(VanillaPipeline):
         }
         state = {key: value for key, value in state.items() if 'model.field' in key}
         self.load_state_dict(state)
-        CONSOLE.print(f"Done loading density field from checkpoint {ckpt_path}")
+        CONSOLE.print(f"Done loading density field from checkpoint from {ckpt_path}")
 
     @profiler.time_function
     def get_eval_loss_dict(self, step: int) -> Tuple[Any, Dict[str, Any], Dict[str, Any]]:
@@ -125,11 +127,9 @@ class TemplatePipeline(VanillaPipeline):
         ray_bundle, batch = self.datamanager.next_eval(step)
         model_outputs = self.model(ray_bundle)
         metrics_dict: Dict
-        self.eval() # somehow the functions below things we're training
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
         if self.datamanager.object is not None:
             metrics_dict.update(self.calculate_density_loss())
-        self.eval() # somehow the functions below things we're training
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         # evaluate along a few lines
         # self.eval_along_lines(b=[0.5,0.75,0.22,0.21,0.68], c=[0.43,0.79,0.2,0.75,0.3], line='x', fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/balls/method-template/line_{step:04d}.png')
@@ -199,17 +199,34 @@ class TemplatePipeline(VanillaPipeline):
         self.train()
         return metrics_dict
     
-    def calculate_density_loss(self):
-        pos = torch.linspace(0, 1, 200, device=self.device)
-        pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
-        with torch.no_grad():
-            pred_density = self._model.field.get_density_from_pos(pos).squeeze()
-        density = self.datamanager.object.t_density(pos)
-        density_loss = torch.nn.functional.mse_loss(pred_density, density).item()
-        density_n = (density - density.min()) / (density.max() - density.min())
-        pred_dens_n = (pred_density - pred_density.min()) / (pred_density.max() - pred_density.min())
-        scaled_density_loss = torch.nn.functional.mse_loss(pred_dens_n, density_n).item()
-        return {'volumetric_loss': density_loss, 'scaled_volumetric_loss': scaled_density_loss}
+    def calculate_density_loss(self, sampling: str = 'grid'):
+        if sampling=='grid':
+            pos = torch.linspace(-1, 1, 200, device=self.device) # scene box goes between -1 and 1 
+            pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
+        elif sampling=='random':
+            pos = 2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0
+        pred_density = self._model.field.get_density_from_pos(pos).squeeze() # remove nograd here so can use in training
+        density = self.datamanager.object.density(pos) # density between -1 and 1
+        
+        x = density
+        y = pred_density
+
+        density_loss = torch.nn.functional.mse_loss(y, x)
+
+        density_n = (x - x.min()) / (x.max() - x.min())
+        pred_dens_n = (y - y.min()) / (y.max() - y.min())
+        scaled_density_loss = torch.nn.functional.mse_loss(pred_dens_n, density_n)
+        
+        mux = x.mean()
+        muy = y.mean()
+        dx = x-mux
+        dy = y-muy
+        normed_correlation = torch.sum(dx*dy) / torch.sqrt(dx.pow(2).sum() * dy.pow(2).sum())
+        return {
+            'volumetric_loss': density_loss, 
+            'scaled_volumetric_loss': scaled_density_loss,
+            'normed_correlation': normed_correlation
+            }
 
     @profiler.time_function
     def get_train_loss_dict(self, step: int):
@@ -220,27 +237,15 @@ class TemplatePipeline(VanillaPipeline):
         Args:
             step: current iteration step to update sampler if using DDP (distributed)
         """
-        if self.config.volumetric_training:
-            # sample positions
-            pos = torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device)
-            density = self.datamanager.object.t_density(pos)
-            model_outputs = self._model.forward(pos)  # train distributed data parallel model if world_size > 1
-            loss_dict = {'loss': torch.nn.functional.mse_loss(model_outputs[FieldHeadNames.DENSITY], density)}
-            metrics_dict = {}
-        else:
-            ray_bundle, batch = self.datamanager.next_train(step)
-            model_outputs = self._model(ray_bundle)  # train distributed data parallel model if world_size > 1
-            metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
-            loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
+        ray_bundle, batch = self.datamanager.next_train(step)
+        model_outputs = self._model(ray_bundle)  # train distributed data parallel model if world_size > 1
+        metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
+        loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         
-        # if step % 199 == 0:
-        #     torch.save(self._model.deformation_field.state_dict(), f'C:/Users/ig348/Documents/nerfstudio/outputs/bspline/nerf_bspline/deformation_field_{step:04d}.pt')
-        # if step == 199:
-        #     for z in np.arange(0.0, 1.0, 0.02):
-        #         self.eval_along_plane(plane='yz', distance=z, fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/bspline/nerf_bspline/slices/image_{z:.3f}.png', engine='opencv')
-                # self.eval_along_plane(plane='xy', distance=z, fn=f'C:/temp/nerfstudio/outputs/sphere_render/method-template/slices/out_{z:.3f}.png')
-            # _,_ = self.eval_along_line()
-            # self.eval_along_plane(plane='yz')
+        if self.config.volumetric_supervision and step>100:
+            # provide supervision to visual training. Use cross-corelation loss
+            density_loss = self.calculate_density_loss(sampling='random')
+            loss_dict['volumetric_loss'] = -0.01*density_loss['normed_correlation']
 
         return model_outputs, loss_dict, metrics_dict
     
@@ -276,8 +281,8 @@ class TemplatePipeline(VanillaPipeline):
             raise NotImplementedError("Only matplotlib supported for now")
     
     def eval_along_plane(self, plane='xy', distance=0.5, fn=None, engine='cv', resolution=500):
-        a = torch.linspace(0, 1, resolution, device=self.device)
-        b = torch.linspace(0, 1, resolution, device=self.device)
+        a = torch.linspace(-1, 1, resolution, device=self.device) # scene box will map to 0-1
+        b = torch.linspace(-1, 1, resolution, device=self.device) # scene box will map to 0-1
         A,B = torch.meshgrid(a,b, indexing='ij')
         C = distance*torch.ones_like(A)
         if plane == 'xy':
@@ -287,7 +292,7 @@ class TemplatePipeline(VanillaPipeline):
         elif plane == 'xz':
             pos = torch.stack([A, C, B], dim=-1)
         with torch.no_grad():
-            pred_density = self.model.field.get_density_from_pos(pos, deformation_field=self.model.deformation_field)
+            pred_density = self._model.field.get_density_from_pos(pos)
         if engine=='matplotlib':
             plt.figure(figsize=(6,6))
             plt.imshow(pred_density.cpu().numpy(), extent=[0,1,0,1], origin='lower', cmap='gray', vmin=0, vmax=1)

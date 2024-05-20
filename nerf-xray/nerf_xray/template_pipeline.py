@@ -113,7 +113,7 @@ class TemplatePipeline(VanillaPipeline):
         }
         state = {key: value for key, value in state.items() if 'model.field' in key}
         self.load_state_dict(state)
-        CONSOLE.print(f"Done loading Nerfstudio checkpoint from {ckpt_path}")
+        CONSOLE.print(f"Done loading density field from checkpoint from {ckpt_path}")
 
     @profiler.time_function
     def get_eval_loss_dict(self, step: int) -> Tuple[Any, Dict[str, Any], Dict[str, Any]]:

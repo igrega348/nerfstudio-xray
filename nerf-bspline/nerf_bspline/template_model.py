@@ -53,8 +53,6 @@ class TemplateModelConfig(NerfactoModelConfig):
     """
 
     _target: Type = field(default_factory=lambda: TemplateModel)
-    volumetric_training: bool = False
-    """whether to train volumetrically or from projections"""
     # need to add flags for whether field is frozen or deformation is frozen
     train_density_field: bool = True
     """whether to train the density field"""
@@ -102,7 +100,6 @@ class TemplateModel(Model):
             appearance_embedding_dim=appearance_embedding_dim,
             average_init_density=self.config.average_init_density,
             implementation=self.config.implementation,
-            volumetric_training=self.config.volumetric_training,
         )
 
         if self.config.deformation_field == "temporal_bspline":
@@ -253,13 +250,10 @@ class TemplateModel(Model):
         Args:
             ray_bundle: containing all the information needed to render that ray latents included or positions for volumetric training
         """
-        if self.training and self.config.volumetric_training:
-            return self.field.forward(ray_bundle, deformation_field=self.deformation_field)
-        else:
-            if self.collider is not None:
-                ray_bundle = self.collider(ray_bundle)
+        if self.collider is not None:
+            ray_bundle = self.collider(ray_bundle)
 
-            return self.get_outputs(ray_bundle)
+        return self.get_outputs(ray_bundle)
 
     def get_outputs(self, ray_bundle: RayBundle):
         # apply the camera optimizer pose tweaks
