@@ -10,13 +10,16 @@ from typing import Dict, Generic, Literal, Sequence, Tuple, Type, Union, Optiona
 import numpy as np
 import torch
 from nerfstudio.cameras.rays import RayBundle
+from nerfstudio.model_components.ray_generators import RayGenerator
 from nerfstudio.utils import profiler
 from nerfstudio.data.datamanagers.base_datamanager import (
     VanillaDataManager, VanillaDataManagerConfig)
+from nerfstudio.utils.rich_utils import CONSOLE
 from typing_extensions import TypeVar
 
 from .objects import Object
 from .template_dataset import TemplateDataset
+from .template_dataloaders import CacheDataloader
 
 
 @dataclass
@@ -75,18 +78,39 @@ class TemplateDataManager(VanillaDataManager, Generic[TDataset]):
     def dataset_type(self) -> Type[TDataset]:
         """Returns the dataset type passed as the generic argument"""
         return TemplateDataset
+    
+    def setup_train(self):
+        """Sets up the data loaders for training"""
+        assert self.train_dataset is not None
+        CONSOLE.print("Setting up training dataset...")
+        self.train_image_dataloader = CacheDataloader(
+            self.train_dataset,
+            num_images_to_sample_from=0,
+            num_times_to_repeat_images=0,
+            device=self.device,
+            num_workers=self.world_size * 4,
+            pin_memory=True,
+            collate_fn=self.config.collate_fn,
+            exclude_batch_keys_from_device=self.exclude_batch_keys_from_device,
+        )
+        self.iter_train_image_dataloader = iter(self.train_image_dataloader)
+        self.train_pixel_sampler = self._get_pixel_sampler(self.train_dataset, self.config.train_num_rays_per_batch)
+        self.train_ray_generator = RayGenerator(self.train_dataset.cameras.to(self.device))
 
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""
         self.train_count += 1
+        timestamp = self.timestamp_sampler.sample_timestep(step)
+        indices_to_sample_from = [idx for idx, t in enumerate(self.train_dataset.metadata['image_timestamps']) if t==timestamp]
+        self.train_image_dataloader.indices_to_sample_from = indices_to_sample_from
+
         image_batch = next(self.iter_train_image_dataloader) 
         assert isinstance(image_batch, dict)
         # pick just one timestamp for the batch
-        timestamp = self.timestamp_sampler.sample_timestep(step)
         # t_max = step / self.config.time_proposal_steps if self.config.time_proposal_steps else 1e10
         # if t_max < 1:
-        chosen_idx = [i for i, idx in enumerate(image_batch['image_idx']) if self.train_dataset.metadata['image_timestamps'][idx]==timestamp]
-        image_batch = {k: v[chosen_idx] for k, v in image_batch.items()}
+        # chosen_idx = [i for i, idx in enumerate(image_batch['image_idx']) if self.train_dataset.metadata['image_timestamps'][idx]==timestamp]
+        # image_batch = {k: v[chosen_idx] for k, v in image_batch.items()}
         assert self.train_pixel_sampler is not None
         batch = self.train_pixel_sampler.sample(image_batch)
         ray_indices = batch["indices"]
