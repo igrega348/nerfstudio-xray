@@ -200,7 +200,7 @@ class TemplatePipeline(VanillaPipeline):
         return metrics_dict
     
     def calculate_density_loss(self):
-        pos = torch.linspace(0, 1, 100, device=self.device)
+        pos = torch.linspace(0, 1, 200, device=self.device)
         pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
         with torch.no_grad():
             pred_density = self._model.field.get_density_from_pos(pos).squeeze()

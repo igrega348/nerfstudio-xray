@@ -203,11 +203,25 @@ class TemplatePipeline(VanillaPipeline):
         with torch.no_grad():
             pred_density = self._model.field.get_density_from_pos(pos).squeeze()
         density = self.datamanager.object.t_density(pos)
-        density_loss = torch.nn.functional.mse_loss(pred_density, density).item()
-        density_n = (density - density.min()) / (density.max() - density.min())
-        pred_dens_n = (pred_density - pred_density.min()) / (pred_density.max() - pred_density.min())
+        x = density
+        y = pred_density
+
+        density_loss = torch.nn.functional.mse_loss(y, x).item()
+
+        density_n = (x - x.min()) / (x.max() - x.min())
+        pred_dens_n = (y - y.min()) / (y.max() - y.min())
         scaled_density_loss = torch.nn.functional.mse_loss(pred_dens_n, density_n).item()
-        return {'volumetric_loss': density_loss, 'scaled_volumetric_loss': scaled_density_loss}
+        
+        mux = x.mean()
+        muy = y.mean()
+        dx = x-mux
+        dy = y-muy
+        normed_correlation = torch.sum(dx*dy) / torch.sqrt(dx.pow(2).sum() * dy.pow(2).sum())
+        return {
+            'volumetric_loss': density_loss, 
+            'scaled_volumetric_loss': scaled_density_loss,
+            'normed_correlation': normed_correlation.item()
+            }
 
     @profiler.time_function
     def get_train_loss_dict(self, step: int):
@@ -222,9 +236,11 @@ class TemplatePipeline(VanillaPipeline):
             # sample positions
             pos = torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device)
             density = self.datamanager.object.t_density(pos)
-            model_outputs = self._model.forward(pos)  # train distributed data parallel model if world_size > 1
-            loss_dict = {'loss': torch.nn.functional.mse_loss(model_outputs[FieldHeadNames.DENSITY], density)}
+            pred_density = self._model.field.get_density_from_pos(pos) # train distributed data parallel model if world_size > 1
+            loss_dict = {'loss': torch.nn.functional.mse_loss(pred_density.view(-1), density.view(-1))}
             metrics_dict = {}
+            model_outputs = {}
+            model_outputs[FieldHeadNames.DENSITY] = pred_density
         else:
             ray_bundle, batch = self.datamanager.next_train(step)
             model_outputs = self._model(ray_bundle)  # train distributed data parallel model if world_size > 1
