@@ -234,10 +234,11 @@ class TemplatePipeline(VanillaPipeline):
         """
         if self.config.volumetric_training:
             # sample positions
-            pos = torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device)
-            density = self.datamanager.object.t_density(pos)
-            pred_density = self._model.field.get_density_from_pos(pos) # train distributed data parallel model if world_size > 1
-            loss_dict = {'loss': torch.nn.functional.mse_loss(pred_density.view(-1), density.view(-1))}
+            pos = torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) # check these coordinates
+            density = self.datamanager.object.t_density(pos).view(-1)
+            model_outputs = self._model.forward(pos) # train distributed data parallel model if world_size > 1
+            loss_dict = {'loss': torch.nn.functional.mse_loss(model_outputs[FieldHeadNames.DENSITY].view(-1), density)}
+
             metrics_dict = {}
             model_outputs = {}
             model_outputs[FieldHeadNames.DENSITY] = pred_density
