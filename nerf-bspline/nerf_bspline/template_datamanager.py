@@ -5,11 +5,12 @@ Template DataManager
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
-from typing import Dict, Generic, Literal, Sequence, Tuple, Type, Union
+from typing import Dict, Generic, Literal, Sequence, Tuple, Type, Union, Optional
 
 import numpy as np
 import torch
 from nerfstudio.cameras.rays import RayBundle
+from nerfstudio.utils import profiler
 from nerfstudio.data.datamanagers.base_datamanager import (
     VanillaDataManager, VanillaDataManagerConfig)
 from typing_extensions import TypeVar
@@ -27,7 +28,7 @@ class TemplateDataManagerConfig(VanillaDataManagerConfig):
 
     _target: Type = field(default_factory=lambda: TemplateDataManager)
     train_split_fraction: float = 1.0
-    time_proposal_steps: int = -1
+    time_proposal_steps: Optional[int] = None
 
 
 TDataset = TypeVar("TDataset", bound=TemplateDataset, default=TemplateDataset)
@@ -82,6 +83,8 @@ class TemplateDataManager(VanillaDataManager, Generic[TDataset]):
         assert isinstance(image_batch, dict)
         # pick just one timestamp for the batch
         timestamp = self.timestamp_sampler.sample_timestep(step)
+        # t_max = step / self.config.time_proposal_steps if self.config.time_proposal_steps else 1e10
+        # if t_max < 1:
         chosen_idx = [i for i, idx in enumerate(image_batch['image_idx']) if self.train_dataset.metadata['image_timestamps'][idx]==timestamp]
         image_batch = {k: v[chosen_idx] for k, v in image_batch.items()}
         assert self.train_pixel_sampler is not None

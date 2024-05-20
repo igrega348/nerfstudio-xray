@@ -105,14 +105,14 @@ class TemplateModel(Model):
         if self.config.deformation_field == "temporal_bspline":
             self.deformation_field = BsplineTemporalDeformationField3d(num_control_points=(4,4,4), support_outside=True)
         elif self.config.deformation_field == "identity":
-            self.deformation_field = IdentityDeformationField()
+            self.deformation_field = None #IdentityDeformationField()
         else:
             raise ValueError(f"Unknown deformation field type: {self.config.deformation_field}")
 
         # train density or deformation field
         if not self.config.train_density_field:
             self.field.requires_grad_(False)
-        if not self.config.train_deformation_field:
+        if not self.config.train_deformation_field and self.deformation_field is not None:
             self.deformation_field.requires_grad_(False)
 
 
@@ -203,7 +203,8 @@ class TemplateModel(Model):
         param_groups["proposal_networks"] = list(self.proposal_networks.parameters())
         param_groups["fields"] = list(self.field.parameters())
         # add deformation field to fields
-        param_groups['fields'].extend(list(self.deformation_field.parameters()))
+        if self.deformation_field is not None:
+            param_groups['fields'].extend(list(self.deformation_field.parameters()))
         self.camera_optimizer.get_param_groups(param_groups=param_groups)
         return param_groups
 

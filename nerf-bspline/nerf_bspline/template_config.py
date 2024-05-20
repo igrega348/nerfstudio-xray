@@ -20,13 +20,12 @@ from nerf_bspline.template_dataparser import TemplateDataParserConfig
 from nerf_bspline.template_model import TemplateModelConfig
 from nerf_bspline.template_pipeline import TemplatePipelineConfig
 
-_volumetric_training = False
 nerf_bspline = MethodSpecification(
     config=TrainerConfig(
         method_name="nerf_bspline",  
-        steps_per_eval_batch=10,
+        steps_per_eval_batch=50,
         steps_per_eval_all_images=10000,
-        steps_per_save=200,
+        steps_per_save=500,
         max_num_iterations=1000,
         mixed_precision=True,
         pipeline=TemplatePipelineConfig(
@@ -37,19 +36,17 @@ nerf_bspline = MethodSpecification(
                     downscale_factors={'train': 1, 'val': 2, 'test': 2},
                     eval_mode='filename+modulo'
                 ),
-                train_num_rays_per_batch=2048,
-                # train_num_rays_per_batch=4096,
+                train_num_rays_per_batch=4096,
                 eval_num_rays_per_batch=4096,
-                time_proposal_steps=250,
+                time_proposal_steps=None,
             ),
             model=TemplateModelConfig(
                 use_appearance_embedding=False,
                 background_color='white',
                 eval_num_rays_per_chunk=1 << 15,
-                volumetric_training=_volumetric_training,
                 disable_scene_contraction=True,
             ),
-            volumetric_training=_volumetric_training,
+            volumetric_supervision=False
         ),
         optimizers={
             # TODO: consider changing optimizers depending on your custom method
@@ -74,7 +71,7 @@ nerf_bspline = MethodSpecification(
             camera_frustum_scale=0.5,
             quit_on_train_completion=False,
         ),
-        vis="viewer",
+        vis="tensorboard",
     ),
     description="Nerfstudio method template.",
 )
