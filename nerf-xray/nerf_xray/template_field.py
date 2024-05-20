@@ -7,7 +7,7 @@ Currently this subclasses the NerfactoField. Consider subclassing the base Field
 from typing import Dict, Literal, Optional, Tuple, Union
 
 import torch
-from nerfstudio.cameras.rays import RaySamples
+from nerfstudio.cameras.rays import Frustums, RaySamples
 from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.field_components.activations import trunc_exp
 from nerfstudio.field_components.field_heads import FieldHeadNames
@@ -63,7 +63,6 @@ class TemplateNerfField(NerfactoField):
         spatial_distortion: Optional[SpatialDistortion] = None,
         average_init_density: float = 1.0,
         implementation: Literal["tcnn", "torch"] = "tcnn",
-        volumetric_training: bool = False,
     ) -> None:
         super().__init__(
             aabb=aabb,
@@ -94,7 +93,6 @@ class TemplateNerfField(NerfactoField):
         )
         # REMOVE RGB HEAD
         del self.mlp_head
-        self.volumetric_training = volumetric_training
 
     def get_outputs(
         self, ray_samples: RaySamples, density_embedding: Optional[Tensor] = None
@@ -107,18 +105,13 @@ class TemplateNerfField(NerfactoField):
     
     def get_density(self, ray_samples: Union[RaySamples, Tensor], deformation_field: Optional[torch.nn.Module] = None) -> Tuple[Tensor, Tensor]:
         """Computes and returns the densities."""
-        if self.training and self.volumetric_training:
-            positions: Tensor
-            positions = ray_samples
-            h_to_shape = list(positions.shape[:-1])
+        if self.spatial_distortion is not None:
+            positions = ray_samples.frustums.get_positions()
+            positions = self.spatial_distortion(positions)
+            positions = (positions + 2.0) / 4.0
         else:
-            if self.spatial_distortion is not None:
-                positions = ray_samples.frustums.get_positions()
-                positions = self.spatial_distortion(positions)
-                positions = (positions + 2.0) / 4.0
-            else:
-                positions = SceneBox.get_normalized_positions(ray_samples.frustums.get_positions(), self.aabb)
-            h_to_shape = ray_samples.frustums.shape
+            positions = SceneBox.get_normalized_positions(ray_samples.frustums.get_positions(), self.aabb)
+        h_to_shape = ray_samples.frustums.shape
         if deformation_field is not None:
             positions = deformation_field(positions, ray_samples.times)
         # Make sure the tcnn gets inputs between 0 and 1.
@@ -143,30 +136,19 @@ class TemplateNerfField(NerfactoField):
         density = density * selector[..., None]
         return density, base_mlp_out
 
-    def get_density_from_pos(self, positions: Tensor, deformation_field: Optional[torch.nn.Module] = None, time: float = 0.0) -> Tensor:
-        h_to_shape = list(positions.shape[:-1])
-        if deformation_field is not None:
-            positions = deformation_field(positions, times=positions.new_tensor([time]))
-        # Make sure the tcnn gets inputs between 0 and 1.
-        selector = ((positions > 0.0) & (positions < 1.0)).all(dim=-1)
-        positions = positions * selector[..., None]
-        self._sample_locations = positions
-        if not self._sample_locations.requires_grad:
-            self._sample_locations.requires_grad = True
-        positions_flat = positions.view(-1, 3)
-        h = self.mlp_base(positions_flat).view(*h_to_shape, -1)
-        density_before_activation, base_mlp_out = torch.split(h, [1, self.geo_feat_dim], dim=-1)
-        # Offset this to more negative
-        density_before_activation = density_before_activation - 2.0
-        self._density_before_activation = density_before_activation
-
-        # Rectifying the density with an exponential is much more stable than a ReLU or
-        # softplus, because it enables high post-activation (float32) density outputs
-        # from smaller internal (float16) parameters.
-        # density = self.average_init_density * trunc_exp(density_before_activation.to(positions))
-        # try sigmoid activation
-        density = self.average_init_density * torch.sigmoid(density_before_activation.to(positions))
-        density = density * selector[..., None]
+    def get_density_from_pos(
+        self, positions: Tensor, deformation_field: Optional[torch.nn.Module] = None, time: float = 0.0
+    ) -> Tensor:
+        ray_samples = RaySamples(
+            frustums=Frustums(
+                origins=positions,
+                directions=torch.ones_like(positions),
+                starts=torch.zeros_like(positions[..., :1]),
+                ends=torch.zeros_like(positions[..., :1]),
+                pixel_area=torch.ones_like(positions[..., :1]),
+            )
+        )
+        density, _ = self.get_density(ray_samples, deformation_field=deformation_field)
         return density
     
     def forward(self, ray_samples: RaySamples, compute_normals: bool = False, deformation_field: Optional[torch.nn.Module] = None) -> Dict[FieldHeadNames, Tensor]:
@@ -175,24 +157,17 @@ class TemplateNerfField(NerfactoField):
         Args:
             ray_samples: Samples to evaluate field on.
         """
-        if self.training and self.volumetric_training:
-            density, density_embedding = self.get_density(ray_samples, deformation_field)
-            field_outputs = {}
-            field_outputs[FieldHeadNames.DENSITY] = density  # type: ignore
-
-            return field_outputs
-        else:
-            if compute_normals:
-                with torch.enable_grad():
-                    density, density_embedding = self.get_density(ray_samples, deformation_field)
-            else:
+        if compute_normals:
+            with torch.enable_grad():
                 density, density_embedding = self.get_density(ray_samples, deformation_field)
+        else:
+            density, density_embedding = self.get_density(ray_samples, deformation_field)
 
-            field_outputs = self.get_outputs(ray_samples, density_embedding=density_embedding)
-            field_outputs[FieldHeadNames.DENSITY] = density  # type: ignore
+        field_outputs = self.get_outputs(ray_samples, density_embedding=density_embedding)
+        field_outputs[FieldHeadNames.DENSITY] = density  # type: ignore
 
-            if compute_normals:
-                with torch.enable_grad():
-                    normals = self.get_normals()
-                field_outputs[FieldHeadNames.NORMALS] = normals  # type: ignore
-            return field_outputs
+        if compute_normals:
+            with torch.enable_grad():
+                normals = self.get_normals()
+            field_outputs[FieldHeadNames.NORMALS] = normals  # type: ignore
+        return field_outputs

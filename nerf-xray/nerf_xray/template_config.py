@@ -20,7 +20,6 @@ from nerf_xray.template_dataparser import TemplateDataParserConfig
 from nerf_xray.template_model import TemplateModelConfig
 from nerf_xray.template_pipeline import TemplatePipelineConfig
 
-_volumetric_training = False
 nerf_xray = MethodSpecification(
     config=TrainerConfig(
         method_name="nerf_xray", 
@@ -46,10 +45,9 @@ nerf_xray = MethodSpecification(
                 use_appearance_embedding=False,
                 background_color='white',
                 eval_num_rays_per_chunk=1 << 15,
-                volumetric_training=_volumetric_training,
                 disable_scene_contraction=True,
             ),
-            volumetric_training=_volumetric_training,
+            volumetric_training=False,
         ),
         optimizers={
             # TODO: consider changing optimizers depending on your custom method

@@ -50,8 +50,8 @@ class TemplateModelConfig(NerfactoModelConfig):
     """
 
     _target: Type = field(default_factory=lambda: TemplateModel)
-    volumetric_training: bool = False
-    """whether to train volumetrically or from projections"""
+    num_MLP_layers: int = 2
+    """number of layers in density MLP"""
 
 class TemplateModel(Model):
     """Nerfacto model
@@ -79,6 +79,7 @@ class TemplateModel(Model):
             self.scene_box.aabb,
             hidden_dim=self.config.hidden_dim,
             num_levels=self.config.num_levels,
+            num_layers=self.config.num_MLP_layers,
             max_res=self.config.max_res,
             base_res=self.config.base_res,
             features_per_level=self.config.features_per_level,
@@ -92,7 +93,6 @@ class TemplateModel(Model):
             appearance_embedding_dim=appearance_embedding_dim,
             average_init_density=self.config.average_init_density,
             implementation=self.config.implementation,
-            volumetric_training=self.config.volumetric_training,
         )
 
         self.camera_optimizer: CameraOptimizer = self.config.camera_optimizer.setup(
@@ -227,13 +227,10 @@ class TemplateModel(Model):
         Args:
             ray_bundle: containing all the information needed to render that ray latents included or positions for volumetric training
         """
-        if self.training and self.config.volumetric_training:
-            return self.field.forward(ray_bundle)
-        else:
-            if self.collider is not None:
-                ray_bundle = self.collider(ray_bundle)
+        if self.collider is not None:
+            ray_bundle = self.collider(ray_bundle)
 
-            return self.get_outputs(ray_bundle)
+        return self.get_outputs(ray_bundle)
 
     def get_outputs(self, ray_bundle: RayBundle):
         # apply the camera optimizer pose tweaks
@@ -287,7 +284,7 @@ class TemplateModel(Model):
 
         for i in range(self.config.num_proposal_iterations):
             outputs[f"prop_depth_{i}"] = self.renderer_depth(weights=weights_list[i], ray_samples=ray_samples_list[i])
-        return outputs       
+        return outputs
 
     def get_metrics_dict(self, outputs, batch) -> Dict:
         metrics_dict = {}

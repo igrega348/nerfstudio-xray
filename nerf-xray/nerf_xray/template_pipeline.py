@@ -127,7 +127,7 @@ class TemplatePipeline(VanillaPipeline):
         metrics_dict: Dict
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
         if self.datamanager.object is not None:
-            metrics_dict['volumetric_loss'] = self.calculate_density_loss()
+            metrics_dict.update(self.calculate_density_loss())
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         # evaluate along a few lines
         # self.eval_along_lines(b=[0.5,0.75,0.22,0.21,0.68], c=[0.43,0.79,0.2,0.75,0.3], line='x', fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/balls/method-template/line_{step:04d}.png')
@@ -193,19 +193,35 @@ class TemplatePipeline(VanillaPipeline):
                 )
         if self.datamanager.object is not None:
             # evaluate volumetric loss on a 100x100x100 grid
-            density_loss = self.calculate_density_loss()
-            metrics_dict['volumetric_loss'] = density_loss
+            metrics_dict.update(self.calculate_density_loss())
         self.train()
         return metrics_dict
     
     def calculate_density_loss(self):
-        pos = torch.linspace(0, 1, 100, device=self.device)
+        pos = torch.linspace(-1, 1, 200, device=self.device) # scene box goes between -1 and 1 
         pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
         with torch.no_grad():
             pred_density = self._model.field.get_density_from_pos(pos).squeeze()
-        density = self.datamanager.object.t_density(pos)
-        density_loss = torch.nn.functional.mse_loss(pred_density, density).item()
-        return density_loss
+        density = self.datamanager.object.density(pos) # density between -1 and 1
+        x = density
+        y = pred_density
+
+        density_loss = torch.nn.functional.mse_loss(y, x).item()
+
+        density_n = (x - x.min()) / (x.max() - x.min())
+        pred_dens_n = (y - y.min()) / (y.max() - y.min())
+        scaled_density_loss = torch.nn.functional.mse_loss(pred_dens_n, density_n).item()
+        
+        mux = x.mean()
+        muy = y.mean()
+        dx = x-mux
+        dy = y-muy
+        normed_correlation = torch.sum(dx*dy) / torch.sqrt(dx.pow(2).sum() * dy.pow(2).sum())
+        return {
+            'volumetric_loss': density_loss, 
+            'scaled_volumetric_loss': scaled_density_loss,
+            'normed_correlation': normed_correlation.item()
+            }
 
     @profiler.time_function
     def get_train_loss_dict(self, step: int):
@@ -218,11 +234,14 @@ class TemplatePipeline(VanillaPipeline):
         """
         if self.config.volumetric_training:
             # sample positions
-            pos = torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device)
+            pos = torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) # check these coordinates
             density = self.datamanager.object.t_density(pos).view(-1)
             model_outputs = self._model.forward(pos) # train distributed data parallel model if world_size > 1
             loss_dict = {'loss': torch.nn.functional.mse_loss(model_outputs[FieldHeadNames.DENSITY].view(-1), density)}
+
             metrics_dict = {}
+            model_outputs = {}
+            model_outputs[FieldHeadNames.DENSITY] = pred_density
         else:
             ray_bundle, batch = self.datamanager.next_train(step)
             model_outputs = self._model(ray_bundle)  # train distributed data parallel model if world_size > 1
@@ -270,8 +289,8 @@ class TemplatePipeline(VanillaPipeline):
             raise NotImplementedError("Only matplotlib supported for now")
     
     def eval_along_plane(self, plane='xy', distance=0.5, fn=None, engine='cv', resolution=500):
-        a = torch.linspace(0, 1, resolution, device=self.device)
-        b = torch.linspace(0, 1, resolution, device=self.device)
+        a = torch.linspace(-1, 1, resolution, device=self.device) # scene box will map to 0-1
+        b = torch.linspace(-1, 1, resolution, device=self.device) # scene box will map to 0-1
         A,B = torch.meshgrid(a,b, indexing='ij')
         C = distance*torch.ones_like(A)
         if plane == 'xy':
