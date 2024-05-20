@@ -205,6 +205,42 @@ class BSplineField3d(torch.nn.Module):
             T[ix_nan | iy_nan | iz_nan] = torch.nan
         return T
     
+    def vectorized_displacement(
+            self, x: Tensor, y: Tensor, z: Tensor, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None
+    ) -> torch.Tensor:
+        """Vectorized version of the displacement function.
+        """
+        if phi_x is None:
+            phi_x = self.phi_x
+        phi_x = phi_x.permute(1,2,3,0)
+        dx, dy, dz = self.spacing
+        u = (x - self.origin[0] - dx)/dx
+        v = (y - self.origin[1] - dy)/dy
+        w = (z - self.origin[2] - dz)/dz
+        ix = torch.floor(u).long()
+        iy = torch.floor(v).long()
+        iz = torch.floor(w).long()
+        if not self.support_outside:
+            ix_nan = (ix < 0) | (ix >= self.grid_size[0]-3)
+            iy_nan = (iy < 0) | (iy >= self.grid_size[1]-3)
+            iz_nan = (iz < 0) | (iz >= self.grid_size[2]-3)
+        u = u - ix
+        v = v - iy
+        w = w - iz
+        T = x.new_zeros(*x.shape, 3)
+        u_shape = u.shape
+        for l in range(4):
+            ix_loc = torch.clamp(ix + l, 0, self.grid_size[0]-1)
+            for m in range(4):
+                iy_loc = torch.clamp(iy + m, 0, self.grid_size[1]-1)
+                for n in range(4):
+                    iz_loc = torch.clamp(iz + n, 0, self.grid_size[2]-1)
+                    # careful. Swapped order of axes in phi_x
+                    T[...,:] += self.bspline(u, l).view(*u_shape,1) * self.bspline(v, m).view(*u_shape,1) * self.bspline(w, n).view(*u_shape,1) * phi_x[ix_loc, iy_loc, iz_loc, :]
+        if not self.support_outside:
+            T[ix_nan | iy_nan | iz_nan, :] = torch.nan
+        return T
+    
 class BsplineDeformationField3d(torch.nn.Module):
     def __init__(
             self, 
@@ -245,18 +281,15 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
 
     def forward(self, positions: Tensor, times: Tensor) -> Tensor:
         # positions, times of shape [ray, nsamples, 3]
-        x0, x1, x2 = positions[...,0].view(-1), positions[...,1].view(-1), positions[...,2].view(-1)
+        x0, x1, x2 = positions[...,0], positions[...,1], positions[...,2]
         uq_times = torch.unique(times)
         assert len(uq_times)==1
         if self.phi_x is None:
             phi = self.weight_nn(uq_times[0].view(-1,1)).view(3, *self.bspline_field.grid_size)
         else:
             phi = self.phi_x[:uq_times[0]+1].sum(dim=0)
-        out = positions.clone()
-        out[...,0] += self.bspline_field.displacement(x0, x1, x2, 0, phi_x=phi).view(positions.shape[:-1])
-        out[...,1] += self.bspline_field.displacement(x0, x1, x2, 1, phi_x=phi).view(positions.shape[:-1])
-        out[...,2] += self.bspline_field.displacement(x0, x1, x2, 2, phi_x=phi).view(positions.shape[:-1])
-        return out
+        displacement = self.bspline_field.vectorized_displacement(x0, x1, x2, phi_x=phi)
+        return positions + displacement
     
 class BsplineTemporalDeformationField1d(torch.nn.Module):
     def __init__(
