@@ -85,7 +85,7 @@ class TemplateDataManager(VanillaDataManager, Generic[TDataset]):
         CONSOLE.print("Setting up training dataset...")
         self.train_image_dataloader = CacheDataloader(
             self.train_dataset,
-            num_images_to_sample_from=0,
+            num_images_to_sample_from=2,
             num_times_to_repeat_images=0,
             device=self.device,
             num_workers=self.world_size * 4,

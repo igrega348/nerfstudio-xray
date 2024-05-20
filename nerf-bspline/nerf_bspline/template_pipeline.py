@@ -245,7 +245,7 @@ class TemplatePipeline(VanillaPipeline):
         if self.config.volumetric_supervision and step>100:
             # provide supervision to visual training. Use cross-corelation loss
             density_loss = self.calculate_density_loss(sampling='random')
-            loss_dict['volumetric_loss'] = -0.01*density_loss['normed_correlation']
+            loss_dict['volumetric_loss'] = -0.001*density_loss['normed_correlation']
 
         return model_outputs, loss_dict, metrics_dict
     

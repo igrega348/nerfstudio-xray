@@ -102,6 +102,7 @@ class CacheDataloader(DataLoader):
 
         assert isinstance(self.dataset, Sized)
         indices = [i for i in self.indices_to_sample_from]
+        indices = random.sample(indices, self.num_images_to_sample_from)
         batch_list = []
         results = []
 

@@ -12,8 +12,10 @@ class NeuralPhiX(torch.nn.Module):
         for _ in range(depth-1):
             self.W.append(torch.nn.Linear(width, width))
             self.W.append(torch.nn.SELU())
-        self.W.append(torch.nn.Linear(width, num_control_points))
-        
+        lin = torch.nn.Linear(width, num_control_points, bias=False)
+        torch.nn.init.xavier_uniform_(lin.weight, gain=1e-1)
+        self.W.append(lin)
+
     def forward(self, x):
         return self.W(x)
     
@@ -250,11 +252,44 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
             phi = self.weight_nn(uq_times[0].view(-1,1)).view(3, *self.bspline_field.grid_size)
         else:
             phi = self.phi_x[:uq_times[0]+1].sum(dim=0)
-        positions[...,0] += self.bspline_field.displacement(x0, x1, x2, 0, phi_x=phi).view(positions.shape[:-1])
-        positions[...,1] += self.bspline_field.displacement(x0, x1, x2, 1, phi_x=phi).view(positions.shape[:-1])
-        positions[...,2] += self.bspline_field.displacement(x0, x1, x2, 2, phi_x=phi).view(positions.shape[:-1])
-        return positions
+        out = positions.clone()
+        out[...,0] += self.bspline_field.displacement(x0, x1, x2, 0, phi_x=phi).view(positions.shape[:-1])
+        out[...,1] += self.bspline_field.displacement(x0, x1, x2, 1, phi_x=phi).view(positions.shape[:-1])
+        out[...,2] += self.bspline_field.displacement(x0, x1, x2, 2, phi_x=phi).view(positions.shape[:-1])
+        return out
     
+class BsplineTemporalDeformationField1d(torch.nn.Module):
+    def __init__(
+            self, 
+            phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]]=None, 
+            support_outside: bool = False, 
+            support_range: Optional[Tuple[float,float]]=None,
+            num_control_points: Optional[int]=None
+        ) -> None:
+        super().__init__()
+        if phi_x is not None:
+            assert phi_x.ndim == 2 # [ntimes, nz]
+            num_control_points = phi_x.shape[-1]
+            self.phi_x = phi_x
+        else:
+            assert num_control_points is not None
+            self.phi_x = None
+            self.weight_nn = NeuralPhiX(num_control_points, 3, 16)
+        self.bspline_field = BSplineField1d(support_outside=support_outside, support_range=support_range, num_control_points=num_control_points)
+
+    def forward(self, positions: Tensor, times: Tensor) -> Tensor:
+        # positions, times of shape [ray, nsamples, 3]
+        x0, x1, x2 = positions[...,0].view(-1), positions[...,1].view(-1), positions[...,2].view(-1)
+        uq_times = torch.unique(times)
+        assert len(uq_times)==1
+        if self.phi_x is None:
+            phi = self.weight_nn(uq_times[0].view(-1,1)).view(-1)
+        else:
+            phi = self.phi_x[:uq_times[0]+1].sum(dim=0)
+        out = positions.clone()
+        out[...,2] += self.bspline_field.displacement(x2, phi_x=phi).view(positions.shape[:-1])
+        return out
+
 class IdentityDeformationField(torch.nn.Module):
     def forward(self, x: Tensor, times: Optional[Tensor]) -> Tensor:
         return x

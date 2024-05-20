@@ -39,6 +39,7 @@ from torch import Tensor
 from torch.nn import Parameter
 
 from .deformation_fields import (AffineTemporalDeformationField,
+                                 BsplineTemporalDeformationField1d,
                                  BsplineTemporalDeformationField3d,
                                  IdentityDeformationField)
 from .template_field import TemplateNerfField
@@ -58,7 +59,7 @@ class TemplateModelConfig(NerfactoModelConfig):
     """whether to train the density field"""
     train_deformation_field: bool = False
     """whether to train the deformation field"""
-    deformation_field: Literal["temporal_bspline", "identity"] = "identity"
+    deformation_field: Literal["temporal_bspline", "temporal_1d_bspline", "identity"] = "identity"
     """type of deformation field"""
 
 class TemplateModel(Model):
@@ -103,7 +104,9 @@ class TemplateModel(Model):
         )
 
         if self.config.deformation_field == "temporal_bspline":
-            self.deformation_field = BsplineTemporalDeformationField3d(support_range=[(0,1),(0,1),(0,1)], num_control_points=(4,4,4), support_outside=True)
+            self.deformation_field = BsplineTemporalDeformationField3d(support_range=[(0,1),(0,1),(0,1)], num_control_points=(8,8,8), support_outside=True)
+        elif self.config.deformation_field == 'temporal_1d_bspline':
+            self.deformation_field = BsplineTemporalDeformationField1d(support_range=(0,1), num_control_points=4, support_outside=True)
         elif self.config.deformation_field == "identity":
             self.deformation_field = None #IdentityDeformationField()
         else:
