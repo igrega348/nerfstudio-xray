@@ -103,7 +103,7 @@ class TemplateModel(Model):
         )
 
         if self.config.deformation_field == "temporal_bspline":
-            self.deformation_field = BsplineTemporalDeformationField3d(num_control_points=(4,4,4), support_outside=True)
+            self.deformation_field = BsplineTemporalDeformationField3d(support_range=[(0,1),(0,1),(0,1)], num_control_points=(4,4,4), support_outside=True)
         elif self.config.deformation_field == "identity":
             self.deformation_field = None #IdentityDeformationField()
         else:

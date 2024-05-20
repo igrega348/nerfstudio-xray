@@ -113,7 +113,7 @@ class TemplateNerfField(NerfactoField):
             positions = SceneBox.get_normalized_positions(ray_samples.frustums.get_positions(), self.aabb)
         h_to_shape = ray_samples.frustums.shape
         if deformation_field is not None:
-            positions = deformation_field(positions, ray_samples.times)
+            positions = deformation_field(positions, ray_samples.times) # input to deformation field in range 0-1
         # Make sure the tcnn gets inputs between 0 and 1.
         selector = ((positions > 0.0) & (positions < 1.0)).all(dim=-1)
         positions = positions * selector[..., None]
