@@ -234,11 +234,10 @@ class TemplatePipeline(VanillaPipeline):
         """
         if self.config.volumetric_training:
             # sample positions
-            pos = torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) # check these coordinates
-            density = self.datamanager.object.t_density(pos).view(-1)
-            model_outputs = self._model.forward(pos) # train distributed data parallel model if world_size > 1
-            loss_dict = {'loss': torch.nn.functional.mse_loss(model_outputs[FieldHeadNames.DENSITY].view(-1), density)}
-
+            pos = 2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0
+            density = self.datamanager.object.density(pos).view(-1)
+            pred_density = self._model.field.get_density_from_pos(pos) # train distributed data parallel model if world_size > 1
+            loss_dict = {'loss': torch.nn.functional.mse_loss(pred_density.view(-1), density.view(-1))}
             metrics_dict = {}
             model_outputs = {}
             model_outputs[FieldHeadNames.DENSITY] = pred_density
@@ -247,13 +246,6 @@ class TemplatePipeline(VanillaPipeline):
             model_outputs = self._model(ray_bundle)  # train distributed data parallel model if world_size > 1
             metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
             loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
-        
-        # if step == 500:
-        #     for z in np.arange(0.0, 1.0, 0.02):
-        #         self.eval_along_plane(plane='xy', distance=z, fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/balls/method-template/slices/out_{z:.3f}.png', engine='matplotlib')
-                # self.eval_along_plane(plane='xy', distance=z, fn=f'C:/temp/nerfstudio/outputs/sphere_render/method-template/slices/out_{z:.3f}.png')
-            # _,_ = self.eval_along_line()
-            # self.eval_along_plane(plane='xy')
 
         return model_outputs, loss_dict, metrics_dict
     

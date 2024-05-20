@@ -26,7 +26,7 @@ nerf_xray = MethodSpecification(
         steps_per_eval_batch=50,
         steps_per_eval_all_images=10000,
         steps_per_save=5000,
-        max_num_iterations=2000,
+        max_num_iterations=1000,
         mixed_precision=True,
         pipeline=TemplatePipelineConfig(
             datamanager=TemplateDataManagerConfig(
@@ -71,7 +71,7 @@ nerf_xray = MethodSpecification(
             camera_frustum_scale=0.5,
             quit_on_train_completion=True,
         ),
-        vis="viewer",
+        vis="tensorboard",
     ),
     description="Nerfstudio method template.",
 )
