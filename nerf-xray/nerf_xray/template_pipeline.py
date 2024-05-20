@@ -198,11 +198,11 @@ class TemplatePipeline(VanillaPipeline):
         return metrics_dict
     
     def calculate_density_loss(self):
-        pos = torch.linspace(0, 1, 200, device=self.device)
+        pos = torch.linspace(-1, 1, 200, device=self.device) # scene box goes between -1 and 1 
         pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
         with torch.no_grad():
             pred_density = self._model.field.get_density_from_pos(pos).squeeze()
-        density = self.datamanager.object.t_density(pos)
+        density = self.datamanager.object.density(pos) # density between -1 and 1
         x = density
         y = pred_density
 
@@ -288,8 +288,8 @@ class TemplatePipeline(VanillaPipeline):
             raise NotImplementedError("Only matplotlib supported for now")
     
     def eval_along_plane(self, plane='xy', distance=0.5, fn=None, engine='cv', resolution=500):
-        a = torch.linspace(0, 1, resolution, device=self.device)
-        b = torch.linspace(0, 1, resolution, device=self.device)
+        a = torch.linspace(-1, 1, resolution, device=self.device) # scene box will map to 0-1
+        b = torch.linspace(-1, 1, resolution, device=self.device) # scene box will map to 0-1
         A,B = torch.meshgrid(a,b, indexing='ij')
         C = distance*torch.ones_like(A)
         if plane == 'xy':
