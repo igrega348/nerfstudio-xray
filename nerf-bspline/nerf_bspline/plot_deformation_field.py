@@ -5,7 +5,23 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
-from deformation_fields import AffineTemporalDeformationField, BsplineTemporalDeformationField3d
+from deformation_fields import AffineTemporalDeformationField, BSplineField3d, BsplineTemporalDeformationField3d, BSplineField1d
+# %% Test support argument in field
+phi = torch.tensor([0,0,0,1,0,0,0])
+df = BSplineField1d(phi, support_range=(-0.8,1), support_outside=True)
+t = torch.linspace(-2, 2, 100)
+y = df.displacement(t)
+plt.plot(t, y)
+# %% Test in 3d
+phi = torch.zeros(1,5,5,5)
+phi[0,2,2,2] = 1
+df = BSplineField3d(phi, support_range=[(0,1),(0,1),(0,1)], support_outside=True)
+z = torch.linspace(-4, 4, 100)
+for a in [0.1, 0.5, 0.99]:
+    x = torch.ones_like(z)*a
+    y = torch.ones_like(z)*a
+    u = df.displacement(x,y,z,0)
+    plt.plot(z, u)
 # %%
 ckpt = Path('../../../nerfstudio/outputs/bspline/nerf_bspline/2024-05-14_230731/nerfstudio_models/step-000001999.ckpt')
 # %%
