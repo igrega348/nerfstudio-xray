@@ -199,14 +199,14 @@ class TemplatePipeline(VanillaPipeline):
         self.train()
         return metrics_dict
     
-    def calculate_density_loss(self, sampling: str = 'grid'):
+    def calculate_density_loss(self, sampling: str = 'random'):
         if sampling=='grid':
             pos = torch.linspace(-1, 1, 200, device=self.device) # scene box goes between -1 and 1 
             pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
         elif sampling=='random':
             pos = 2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0
         pred_density = self._model.field.get_density_from_pos(pos).squeeze() # remove nograd here so can use in training
-        density = self.datamanager.object.density(pos) # density between -1 and 1
+        density = self.datamanager.object.density(pos).squeeze() # density between -1 and 1
         
         x = density
         y = pred_density
@@ -245,7 +245,7 @@ class TemplatePipeline(VanillaPipeline):
         if self.config.volumetric_supervision and step>100:
             # provide supervision to visual training. Use cross-corelation loss
             density_loss = self.calculate_density_loss(sampling='random')
-            loss_dict['volumetric_loss'] = -0.01*density_loss['normed_correlation']
+            loss_dict['volumetric_loss'] = -0.005*density_loss['normed_correlation']
 
         return model_outputs, loss_dict, metrics_dict
     
