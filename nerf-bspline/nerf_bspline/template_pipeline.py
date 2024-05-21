@@ -199,14 +199,21 @@ class TemplatePipeline(VanillaPipeline):
         self.train()
         return metrics_dict
     
-    def calculate_density_loss(self, sampling: str = 'random'):
+    def calculate_density_loss(self, sampling: str = 'random', time: Optional[float] = None):
         if sampling=='grid':
             pos = torch.linspace(-1, 1, 100, device=self.device) # scene box goes between -1 and 1 
             pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
         elif sampling=='random':
-            pos = 2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0
-        pred_density = self._model.field.get_density_from_pos(pos).squeeze() # remove nograd here so can use in training
-        density = self.datamanager.object.density(pos).squeeze() # density between -1 and 1
+            pos = 2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.
+        if time is not None:
+            assert time in [0.0, 1.0], "Time must be 0.0 or 1.0"
+            object = self.datamanager.object if time==0.0 else self.datamanager.final_object
+            pred_density = self._model.field.get_density_from_pos(pos, deformation_field=self._model.deformation_field, time=time).squeeze()
+        else:
+            object = self.datamanager.object
+            pred_density = self._model.field.get_density_from_pos(pos).squeeze()
+
+        density = object.density(pos).squeeze() # density between -1 and 1
         
         x = density
         y = pred_density
@@ -242,9 +249,13 @@ class TemplatePipeline(VanillaPipeline):
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         
-        if self.config.volumetric_supervision and step>100:
+        times = torch.unique(ray_bundle.times)
+        assert len(times)==1
+        time = times[0]
+        
+        if self.config.volumetric_supervision and step>100 and time in [0.0, 1.0]:
             # provide supervision to visual training. Use cross-corelation loss
-            density_loss = self.calculate_density_loss(sampling='random')
+            density_loss = self.calculate_density_loss(sampling='random', time=times[0].item())
             loss_dict['volumetric_loss'] = -0.001*density_loss['normed_correlation']
 
         return model_outputs, loss_dict, metrics_dict

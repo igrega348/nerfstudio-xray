@@ -5,21 +5,22 @@ Template DataManager
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
-from typing import Dict, Generic, Literal, Sequence, Tuple, Type, Union, Optional
+from typing import (Dict, Generic, Literal, Optional, Sequence, Tuple, Type,
+                    Union)
 
 import numpy as np
 import torch
 from nerfstudio.cameras.rays import RayBundle
-from nerfstudio.model_components.ray_generators import RayGenerator
-from nerfstudio.utils import profiler
 from nerfstudio.data.datamanagers.base_datamanager import (
     VanillaDataManager, VanillaDataManagerConfig)
+from nerfstudio.model_components.ray_generators import RayGenerator
+from nerfstudio.utils import profiler
 from nerfstudio.utils.rich_utils import CONSOLE
 from typing_extensions import TypeVar
 
 from .objects import Object
-from .template_dataset import TemplateDataset
 from .template_dataloaders import CacheDataloader
+from .template_dataset import TemplateDataset
 
 
 @dataclass
@@ -30,8 +31,12 @@ class TemplateDataManagerConfig(VanillaDataManagerConfig):
     """
 
     _target: Type = field(default_factory=lambda: TemplateDataManager)
-    train_split_fraction: float = 1.0
+    init_volume_grid_file: Optional[Path] = None
+    """load initial volume grid into object"""
+    final_volume_grid_file: Optional[Path] = None
+    """load final volume grid into object"""
     time_proposal_steps: Optional[int] = None
+    """Until this time prefer early timestamps"""
 
 
 TDataset = TypeVar("TDataset", bound=TemplateDataset, default=TemplateDataset)
@@ -66,13 +71,20 @@ class TemplateDataManager(VanillaDataManager, Generic[TDataset]):
         self.object = None
         if config.data is not None:
             folder = config.data.parent if config.data.suffix=='.json' else config.data
-            try:
-                yaml_files = list(folder.glob("*.yaml"))
-                assert len(yaml_files) == 1, f"Expected 1 yaml file, got {len(yaml_files)}"
-                self.object = Object.from_yaml(yaml_files[0])
-            except AssertionError:
-                self.object = None
-                print("Did not find a yaml file in the data folder. Volumetric loss cannot be computed.")
+            if config.init_volume_grid_file is not None:
+                assert config.init_volume_grid_file.exists(), f"Volume grid file {config.init_volume_grid_file} does not exist."
+                self.object = Object.from_file(config.init_volume_grid_file)
+            else:
+                try:
+                    yaml_files = list(folder.glob("*.yaml"))
+                    assert len(yaml_files) == 1, f"Expected 1 yaml file, got {len(yaml_files)}"
+                    self.object = Object.from_yaml(yaml_files[0])
+                except AssertionError:
+                    self.object = None
+                    print("Did not find a yaml file in the data folder. Volumetric loss cannot be computed.")
+            if config.final_volume_grid_file is not None:
+                assert config.final_volume_grid_file.exists(), f"Volume grid file {config.final_volume_grid_file} does not exist."
+                self.final_object = Object.from_file(config.final_volume_grid_file)
 
     @cached_property
     def dataset_type(self) -> Type[TDataset]:

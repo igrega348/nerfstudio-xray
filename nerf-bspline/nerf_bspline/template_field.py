@@ -146,7 +146,8 @@ class TemplateNerfField(NerfactoField):
                 starts=torch.zeros_like(positions[..., :1]),
                 ends=torch.zeros_like(positions[..., :1]),
                 pixel_area=torch.ones_like(positions[..., :1]),
-            )
+            ),
+            times=torch.tensor([time]),
         )
         density, _ = self.get_density(ray_samples, deformation_field=deformation_field)
         return density

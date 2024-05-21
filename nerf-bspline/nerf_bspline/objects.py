@@ -19,6 +19,15 @@ class Object:
         # Default input Object coordinates are -1 to 1
         # Default nerfstudio is 0 to 1
         return pos*2 - 1
+    
+    @staticmethod
+    def from_file(path: Union[str, Path]) -> "Object":
+        path = Path(path)
+        if path.suffix == ".yaml":
+            return Object.from_yaml(path)
+        if path.suffix == ".npy":
+            return VoxelGrid.from_file(path)
+        raise ValueError(f"Unknown file type: {path.suffix}")
 
     @staticmethod
     def from_yaml(path: Path) -> "Object":
@@ -167,3 +176,27 @@ class Box(Object):
         rho = pos.new_zeros(mask_inside.size())
         rho[mask_inside] = self.rho
         return rho
+    
+
+class VoxelGrid(Object):
+    def __init__(self, rho: torch.Tensor):
+        self.rho = rho
+
+    @staticmethod
+    def from_file(path: Union[str, Path]) -> "VoxelGrid":
+        path = Path(path)
+        assert path.suffix == ".npy", f"Expected .npy file, got {path.suffix}"
+        rho = torch.tensor(np.load(path))
+        return VoxelGrid(rho)
+
+    def density(self, pos: torch.Tensor):
+        # expect pos in -1 to 1 range
+        # use grid_sample
+        if pos.ndim==2:
+            _pos = pos.view(1,1,1,-1,3)
+        elif pos.ndim==3:
+            _pos = pos.unsqueeze(0).unsqueeze(0)
+        else:
+            raise ValueError(f"Expected 2D or 3D tensor, got {pos.ndim}D")
+        rho = torch.nn.functional.grid_sample(self.rho.unsqueeze(0).unsqueeze(0).to(pos), _pos, align_corners=True)
+        return rho.reshape(*pos.shape[:-1], 1)
