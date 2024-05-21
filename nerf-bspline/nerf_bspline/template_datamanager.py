@@ -69,6 +69,7 @@ class TemplateDataManager(VanillaDataManager, Generic[TDataset]):
             np.unique(self.train_dataset.metadata['image_timestamps'])
         )
         self.object = None
+        self.final_object = None
         if config.data is not None:
             folder = config.data.parent if config.data.suffix=='.json' else config.data
             if config.init_volume_grid_file is not None:

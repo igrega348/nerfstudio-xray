@@ -249,14 +249,16 @@ class TemplatePipeline(VanillaPipeline):
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         
-        times = torch.unique(ray_bundle.times)
-        assert len(times)==1
-        time = times[0]
-        
-        if self.config.volumetric_supervision and step>100 and time in [0.0, 1.0]:
+        if self.config.volumetric_supervision and step>100:
             # provide supervision to visual training. Use cross-corelation loss
-            density_loss = self.calculate_density_loss(sampling='random', time=times[0].item())
-            loss_dict['volumetric_loss'] = -0.001*density_loss['normed_correlation']
+            assert self.datamanager.object is not None
+            time = 0.0
+            density_loss = self.calculate_density_loss(sampling='random', time=time)
+            loss_dict[f'volumetric_loss_{time:.0f}'] = -0.001*density_loss['normed_correlation']
+            if self.datamanager.final_object is not None:
+                time = 1.0
+                density_loss = self.calculate_density_loss(sampling='random', time=time)
+                loss_dict[f'volumetric_loss_{time:.0f}'] = -0.001*density_loss['normed_correlation']
 
         return model_outputs, loss_dict, metrics_dict
     
