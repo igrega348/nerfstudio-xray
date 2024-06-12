@@ -49,7 +49,7 @@ class TemplatePipelineConfig(VanillaPipelineConfig):
     """specifies the model config"""
     volumetric_supervision: bool = False
     """specifies if the training gets volumetric supervision"""
-    volumetric_supervision_start_step: int = 100
+    volumetric_supervision_start_step: int = 50
     """start providing volumetric supervision at this step"""
     load_density_ckpt: Optional[Path] = None
     """specifies the path to the density field to load"""
@@ -131,8 +131,6 @@ class TemplatePipeline(VanillaPipeline):
         if self.datamanager.object is not None:
             metrics_dict.update(self.calculate_density_loss())
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
-        # evaluate along a few lines
-        # self.eval_along_lines(b=[0.5,0.75,0.22,0.21,0.68], c=[0.43,0.79,0.2,0.75,0.3], line='x', fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/balls/method-template/line_{step:04d}.png')
         self.train()
         return model_outputs, loss_dict, metrics_dict
     
@@ -249,16 +247,16 @@ class TemplatePipeline(VanillaPipeline):
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         
-        if self.config.volumetric_supervision and step>100:
+        if self.config.volumetric_supervision and step>self.config.volumetric_supervision_start_step:
             # provide supervision to visual training. Use cross-corelation loss
             assert self.datamanager.object is not None
             time = 0.0
             density_loss = self.calculate_density_loss(sampling='random', time=time)
-            loss_dict[f'volumetric_loss_{time:.0f}'] = -0.001*density_loss['normed_correlation']
+            loss_dict[f'volumetric_loss_{time:.0f}'] = -0.005*density_loss['normed_correlation']
             if self.datamanager.final_object is not None:
                 time = 1.0
                 density_loss = self.calculate_density_loss(sampling='random', time=time)
-                loss_dict[f'volumetric_loss_{time:.0f}'] = -0.001*density_loss['normed_correlation']
+                loss_dict[f'volumetric_loss_{time:.0f}'] = -0.005*density_loss['normed_correlation']
 
         return model_outputs, loss_dict, metrics_dict
     
