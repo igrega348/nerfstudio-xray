@@ -10,6 +10,7 @@ import torch
 from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.data.datamanagers.base_datamanager import (
     VanillaDataManager, VanillaDataManagerConfig)
+from nerfstudio.utils.rich_utils import CONSOLE
 
 from .objects import Object
 
@@ -55,7 +56,8 @@ class TemplateDataManager(VanillaDataManager):
                 self.object = Object.from_yaml(yaml_files[0])
             except AssertionError:
                 self.object = None
-                print("Did not find a yaml file in the data folder. Volumetric loss cannot be computed.")
+                string = "Did not find a yaml file in the data folder. Volumetric loss cannot be computed."
+                CONSOLE.print(f"[bold yellow]{string}")
 
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""

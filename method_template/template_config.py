@@ -34,8 +34,9 @@ method_template = MethodSpecification(
                 dataparser=TemplateDataParserConfig(
                     auto_scale_poses=False,
                     center_method='none',
-                    downscale_factors={'train': 1, 'val': 2, 'test': 2},
-                    eval_mode='filename+modulo',
+                    downscale_factors={'train': 1, 'val': 1, 'test': 1},
+                    eval_mode='fraction',
+                    # eval_mode='filename+modulo',
                     # modulo=16,
                     # i0=1
                 ),
