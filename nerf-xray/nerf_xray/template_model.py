@@ -52,6 +52,8 @@ class TemplateModelConfig(NerfactoModelConfig):
     _target: Type = field(default_factory=lambda: TemplateModel)
     num_MLP_layers: int = 2
     """number of layers in density MLP"""
+    background_trainable: bool = False
+    """trainable background color"""
 
 class TemplateModel(Model):
     """Nerfacto model
@@ -153,12 +155,16 @@ class TemplateModel(Model):
         self.collider = NearFarCollider(near_plane=self.config.near_plane, far_plane=self.config.far_plane)
 
         # renderers
-        self.renderer_rgb = RGBRenderer(background_color=self.config.background_color)
+        # self.renderer_rgb = RGBRenderer(background_color=self.config.background_color)
         self.renderer_accumulation = AccumulationRenderer()
         self.renderer_depth = DepthRenderer(method="median")
         self.renderer_expected_depth = DepthRenderer(method="expected")
         self.renderer_normals = NormalsRenderer()
-        self.renderer_attenuation = AttenuationRenderer()
+        self.renderer_attenuation = AttenuationRenderer(
+            background_color=self.config.background_color,
+            background_trainable=self.config.background_trainable,
+            )
+        self.renderer_rgb = self.renderer_attenuation
 
         # shaders
         self.normals_shader = NormalsShader()
@@ -181,6 +187,9 @@ class TemplateModel(Model):
         param_groups = {}
         param_groups["proposal_networks"] = list(self.proposal_networks.parameters())
         param_groups["fields"] = list(self.field.parameters())
+        # # trainable background color
+        # if self.renderer_attenuation is not None:
+        #     param_groups['fields'].extend(list(self.deformation_field.parameters()))
         self.camera_optimizer.get_param_groups(param_groups=param_groups)
         return param_groups
 

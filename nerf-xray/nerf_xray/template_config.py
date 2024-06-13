@@ -44,7 +44,8 @@ nerf_xray = MethodSpecification(
             ),
             model=TemplateModelConfig(
                 use_appearance_embedding=False,
-                background_color='white',
+                background_color=(0.5, 0.5, 0.5),
+                background_trainable=False,
                 eval_num_rays_per_chunk=1 << 15,
                 disable_scene_contraction=True,
             ),
