@@ -48,7 +48,7 @@ class TemplateDataParserConfig(DataParserConfig):
     """The method to use to center the poses."""
     auto_scale_poses: bool = True
     """Whether to automatically scale the poses to fit in +/- 1 bounding box."""
-    eval_mode: Literal["fraction", "filename", "interval", "all"] = "fraction"
+    eval_mode: Literal["fraction", "filename", "filename+modulo", "interval", "all"] = "fraction"
     """
     The method to use for splitting the dataset into train and eval.
     Fraction splits based on a percentage for train and the remaining for eval.
