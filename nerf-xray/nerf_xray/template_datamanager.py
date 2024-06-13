@@ -4,7 +4,7 @@ Template DataManager
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Literal, Tuple, Type, Union
+from typing import Dict, Literal, Tuple, Type, Union, Optional
 
 import torch
 from nerfstudio.cameras.rays import RayBundle
@@ -23,8 +23,8 @@ class TemplateDataManagerConfig(VanillaDataManagerConfig):
     """
 
     _target: Type = field(default_factory=lambda: TemplateDataManager)
-    train_split_fraction: float = 1.0
-
+    volume_grid_file: Optional[Path] = None
+    """load volume grid into object"""
 
 class TemplateDataManager(VanillaDataManager):
     """Template DataManager
@@ -50,14 +50,17 @@ class TemplateDataManager(VanillaDataManager):
         self.object = None
         if config.data is not None:
             folder = config.data.parent if config.data.suffix=='.json' else config.data
-            try:
-                yaml_files = list(folder.glob("*.yaml"))
-                assert len(yaml_files) == 1, f"Expected 1 yaml file, got {len(yaml_files)}"
-                self.object = Object.from_yaml(yaml_files[0])
-            except AssertionError:
-                self.object = None
-                string = "Did not find a yaml file in the data folder. Volumetric loss cannot be computed."
-                CONSOLE.print(f"[bold yellow]{string}")
+            if config.volume_grid_file is not None:
+                assert config.volume_grid_file.exists(), f"Volume grid file {config.volume_grid_file} does not exist."
+                self.object = Object.from_file(config.volume_grid_file)
+            else:
+                try:
+                    yaml_files = list(folder.glob("*.yaml"))
+                    assert len(yaml_files) == 1, f"Expected 1 yaml file, got {len(yaml_files)}"
+                    self.object = Object.from_yaml(yaml_files[0])
+                except AssertionError:
+                    self.object = None
+                    print("Did not find a yaml file in the data folder. Volumetric loss cannot be computed.")
 
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""

@@ -67,14 +67,18 @@ class TemplateDataParserConfig(DataParserConfig):
     load_3D_points: bool = False
     """Whether to load the 3D points from the colmap reconstruction."""
     ###### Add my custom parameters here ######
-    modulo: int = 1
-    """Modulo for selecting frames."""
-    i0: int = 0
-    """Initial frame index."""
+    imin: int = 0
+    """Minimum frame index."""
     imax: int = 1 << 28
     """Maximum frame index."""
+    istep: int = 1
+    """Step in frame index."""
+    min_timestamp: float = 0.0
+    """Minimum timestamp for frames."""
+    max_timestamp: float = 1e10
+    """Maximum timestamp for frames."""
 
-def split_files(image_filenames: List, modulo: int, i0: int, imax: int) -> Tuple[np.ndarray, np.ndarray]:
+def split_files(image_filenames: List, imin: int, imax: int, istep: int) -> Tuple[np.ndarray, np.ndarray]:
     """
     Get the train/eval split based on the filename of the images.
 
@@ -90,7 +94,7 @@ def split_files(image_filenames: List, modulo: int, i0: int, imax: int) -> Tuple
         # check the frame index
         if "train" in basename:
             i = int(basename.split("_")[1])
-            if i % modulo == i0 and i < imax:
+            if i >= imin and i <= imax and (i - imin) % istep == 0:
                 i_train.append(idx)
         elif "eval" in basename:
             i_eval.append(idx)
@@ -169,6 +173,7 @@ class TemplateDataParser(Nerfstudio):
         height = []
         width = []
         distort = []
+        times = []
 
         # sort the frames by fname
         fnames = []
@@ -181,6 +186,10 @@ class TemplateDataParser(Nerfstudio):
         del inds
 
         for frame in frames:
+            # selection based on timestamp
+            if "time" in frame:
+                if frame["time"] < self.config.min_timestamp or frame["time"] > self.config.max_timestamp:
+                    continue
             filepath = Path(frame["file_path"])
             fname = self._get_fname(filepath, data_dir, split)
 
@@ -215,6 +224,7 @@ class TemplateDataParser(Nerfstudio):
                         p2=float(frame["p2"]) if "p2" in frame else 0.0,
                     )
                 )
+            times.append(float(frame.get('time', 0.0))) # covert to float. Default value 0
 
             image_filenames.append(fname)
             poses.append(np.array(frame["transform_matrix"]))
@@ -263,7 +273,7 @@ class TemplateDataParser(Nerfstudio):
             elif self.config.eval_mode == "filename":
                 i_train, i_eval = get_train_eval_split_filename(image_filenames)
             elif self.config.eval_mode == "filename+modulo":
-                i_train, i_eval = split_files(image_filenames, self.config.modulo, self.config.i0, self.config.imax)
+                i_train, i_eval = split_files(image_filenames, self.config.imin, self.config.imax, self.config.istep)
             elif self.config.eval_mode == "interval":
                 i_train, i_eval = get_train_eval_split_interval(image_filenames, self.config.eval_interval)
             elif self.config.eval_mode == "all":
@@ -330,6 +340,7 @@ class TemplateDataParser(Nerfstudio):
         cy = float(meta["cy"]) if cy_fixed else torch.tensor(cy, dtype=torch.float32)[idx_tensor]
         height = int(meta["h"]) if height_fixed else torch.tensor(height, dtype=torch.int32)[idx_tensor]
         width = int(meta["w"]) if width_fixed else torch.tensor(width, dtype=torch.int32)[idx_tensor]
+        times = torch.tensor(times, dtype=torch.float32)[idx_tensor]
         if distort_fixed:
             distortion_params = (
                 torch.tensor(meta["distortion_params"], dtype=torch.float32)
@@ -363,6 +374,7 @@ class TemplateDataParser(Nerfstudio):
             camera_to_worlds=poses[:, :3, :4],
             camera_type=camera_type,
             metadata=metadata,
+            times=times
         )
 
         assert split in self.downscale_factors
@@ -407,6 +419,7 @@ class TemplateDataParser(Nerfstudio):
                 "depth_filenames": depth_filenames if len(depth_filenames) > 0 else None,
                 "depth_unit_scale_factor": self.config.depth_unit_scale_factor,
                 "mask_color": self.config.mask_color,
+                "image_timestamps": times.tolist(),
                 **metadata,
             },
         )

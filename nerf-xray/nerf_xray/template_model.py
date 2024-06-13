@@ -39,6 +39,7 @@ from torch import Tensor
 from torch.nn import Parameter
 
 from .template_field import TemplateNerfField
+from .xray_renderer import AttenuationRenderer
 
 
 @dataclass
@@ -49,8 +50,8 @@ class TemplateModelConfig(NerfactoModelConfig):
     """
 
     _target: Type = field(default_factory=lambda: TemplateModel)
-    volumetric_training: bool = False
-    """whether to train volumetrically or from projections"""
+    num_MLP_layers: int = 2
+    """number of layers in density MLP"""
 
 class TemplateModel(Model):
     """Nerfacto model
@@ -78,6 +79,7 @@ class TemplateModel(Model):
             self.scene_box.aabb,
             hidden_dim=self.config.hidden_dim,
             num_levels=self.config.num_levels,
+            num_layers=self.config.num_MLP_layers,
             max_res=self.config.max_res,
             base_res=self.config.base_res,
             features_per_level=self.config.features_per_level,
@@ -91,7 +93,6 @@ class TemplateModel(Model):
             appearance_embedding_dim=appearance_embedding_dim,
             average_init_density=self.config.average_init_density,
             implementation=self.config.implementation,
-            volumetric_training=self.config.volumetric_training,
         )
 
         self.camera_optimizer: CameraOptimizer = self.config.camera_optimizer.setup(
@@ -157,6 +158,7 @@ class TemplateModel(Model):
         self.renderer_depth = DepthRenderer(method="median")
         self.renderer_expected_depth = DepthRenderer(method="expected")
         self.renderer_normals = NormalsRenderer()
+        self.renderer_attenuation = AttenuationRenderer()
 
         # shaders
         self.normals_shader = NormalsShader()
@@ -225,13 +227,10 @@ class TemplateModel(Model):
         Args:
             ray_bundle: containing all the information needed to render that ray latents included or positions for volumetric training
         """
-        if self.training and self.config.volumetric_training:
-            return self.field.forward(ray_bundle)
-        else:
-            if self.collider is not None:
-                ray_bundle = self.collider(ray_bundle)
+        if self.collider is not None:
+            ray_bundle = self.collider(ray_bundle)
 
-            return self.get_outputs(ray_bundle)
+        return self.get_outputs(ray_bundle)
 
     def get_outputs(self, ray_bundle: RayBundle):
         # apply the camera optimizer pose tweaks
@@ -247,17 +246,19 @@ class TemplateModel(Model):
         weights_list.append(weights)
         ray_samples_list.append(ray_samples)
 
-        rgb = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB], weights=weights)
+        # rgb = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB], weights=weights)
         with torch.no_grad():
             depth = self.renderer_depth(weights=weights, ray_samples=ray_samples)
         expected_depth = self.renderer_expected_depth(weights=weights, ray_samples=ray_samples)
         accumulation = self.renderer_accumulation(weights=weights)
+        attenuation = self.renderer_attenuation(densities=field_outputs[FieldHeadNames.DENSITY], ray_samples=ray_samples)
 
         outputs = {
-            "rgb": rgb,
+            "rgb": attenuation*attenuation.new_ones(1,3), # replace by attenuation
             "accumulation": accumulation,
             "depth": depth,
             "expected_depth": expected_depth,
+            "attenuation": attenuation,
         }
 
         if self.config.predict_normals:
@@ -283,7 +284,7 @@ class TemplateModel(Model):
 
         for i in range(self.config.num_proposal_iterations):
             outputs[f"prop_depth_{i}"] = self.renderer_depth(weights=weights_list[i], ray_samples=ray_samples_list[i])
-        return outputs       
+        return outputs
 
     def get_metrics_dict(self, outputs, batch) -> Dict:
         metrics_dict = {}

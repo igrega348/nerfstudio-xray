@@ -15,42 +15,38 @@ from nerfstudio.engine.schedulers import ExponentialDecaySchedulerConfig
 from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
 
-from method_template.template_datamanager import TemplateDataManagerConfig
-from method_template.template_dataparser import TemplateDataParserConfig
-from method_template.template_model import TemplateModelConfig
-from method_template.template_pipeline import TemplatePipelineConfig
+from nerf_bspline.template_datamanager import TemplateDataManagerConfig
+from nerf_bspline.template_dataparser import TemplateDataParserConfig
+from nerf_bspline.template_model import TemplateModelConfig
+from nerf_bspline.template_pipeline import TemplatePipelineConfig
 
-_volumetric_training = False
-method_template = MethodSpecification(
+nerf_bspline = MethodSpecification(
     config=TrainerConfig(
-        method_name="method-template",  # TODO: rename to your own model
+        method_name="nerf_bspline",  
         steps_per_eval_batch=50,
         steps_per_eval_all_images=10000,
-        steps_per_save=5000,
-        max_num_iterations=2000,
+        steps_per_save=500,
+        max_num_iterations=1000,
         mixed_precision=True,
         pipeline=TemplatePipelineConfig(
             datamanager=TemplateDataManagerConfig(
                 dataparser=TemplateDataParserConfig(
                     auto_scale_poses=False,
                     center_method='none',
-                    downscale_factors={'train': 1, 'val': 1, 'test': 1},
-                    eval_mode='fraction',
-                    # eval_mode='filename+modulo',
-                    # modulo=16,
-                    # i0=1
+                    downscale_factors={'train': 1, 'val': 2, 'test': 2},
+                    eval_mode='filename+modulo'
                 ),
                 train_num_rays_per_batch=4096,
                 eval_num_rays_per_batch=4096,
+                time_proposal_steps=None,
             ),
             model=TemplateModelConfig(
                 use_appearance_embedding=False,
                 background_color='white',
                 eval_num_rays_per_chunk=1 << 15,
-                volumetric_training=_volumetric_training,
                 disable_scene_contraction=True,
             ),
-            volumetric_training=_volumetric_training,
+            volumetric_supervision=False
         ),
         optimizers={
             # TODO: consider changing optimizers depending on your custom method
@@ -58,6 +54,7 @@ method_template = MethodSpecification(
                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.0001, max_steps=200000),
             },
+            # could have deformation fields as a separate parameter group
             "fields": {
                 "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=50000),
@@ -74,7 +71,7 @@ method_template = MethodSpecification(
             camera_frustum_scale=0.5,
             quit_on_train_completion=False,
         ),
-        vis="viewer",
+        vis="tensorboard",
     ),
     description="Nerfstudio method template.",
 )
