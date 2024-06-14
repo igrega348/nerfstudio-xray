@@ -128,6 +128,9 @@ class TemplatePipeline(VanillaPipeline):
         model_outputs = self.model(ray_bundle)
         metrics_dict: Dict
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
+        metrics_dict.update(
+            {'flat_field': self.model.flat_field.data.item()}
+        )
         if self.datamanager.object is not None:
             metrics_dict.update(self.calculate_density_loss())
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)

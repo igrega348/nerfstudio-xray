@@ -23,11 +23,11 @@ from nerf_xray.template_pipeline import TemplatePipelineConfig
 nerf_xray = MethodSpecification(
     config=TrainerConfig(
         method_name="nerf_xray", 
-        steps_per_eval_batch=50,
+        steps_per_eval_batch=10,
         steps_per_eval_all_images=10000,
-        steps_per_eval_image=200,
+        steps_per_eval_image=100,
         steps_per_save=5000,
-        max_num_iterations=250,
+        max_num_iterations=500,
         mixed_precision=True,
         pipeline=TemplatePipelineConfig(
             datamanager=TemplateDataManagerConfig(
@@ -46,7 +46,8 @@ nerf_xray = MethodSpecification(
             model=TemplateModelConfig(
                 use_appearance_embedding=False,
                 background_color='black',
-                background_trainable=False,
+                flat_field_value=0.1,
+                flat_field_trainable=True,
                 eval_num_rays_per_chunk=1 << 15,
                 disable_scene_contraction=True,
             ),

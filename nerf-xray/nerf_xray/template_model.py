@@ -52,7 +52,9 @@ class TemplateModelConfig(NerfactoModelConfig):
     _target: Type = field(default_factory=lambda: TemplateModel)
     num_MLP_layers: int = 2
     """number of layers in density MLP"""
-    background_trainable: bool = False
+    flat_field_value: float = 0.0
+    """initial value of flat field"""
+    flat_field_trainable: bool = False
     """trainable background color"""
 
 class TemplateModel(Model):
@@ -164,7 +166,10 @@ class TemplateModel(Model):
             background_color=self.config.background_color,
             )
         self.renderer_rgb = self.renderer_attenuation
-        self.flat_field = torch.tensor(0.2)
+        self.flat_field = torch.nn.Parameter(
+            torch.tensor(self.config.flat_field_value), 
+            self.config.flat_field_trainable
+        )
 
         # shaders
         self.normals_shader = NormalsShader()
@@ -187,9 +192,9 @@ class TemplateModel(Model):
         param_groups = {}
         param_groups["proposal_networks"] = list(self.proposal_networks.parameters())
         param_groups["fields"] = list(self.field.parameters())
-        # # trainable background color
-        # if self.renderer_attenuation is not None:
-        #     param_groups['fields'].extend(list(self.deformation_field.parameters()))
+        # trainable background color
+        if self.config.flat_field_trainable:
+            param_groups["fields"].append(self.flat_field)
         self.camera_optimizer.get_param_groups(param_groups=param_groups)
         return param_groups
 
