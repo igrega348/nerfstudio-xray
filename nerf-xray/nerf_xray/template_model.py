@@ -162,9 +162,9 @@ class TemplateModel(Model):
         self.renderer_normals = NormalsRenderer()
         self.renderer_attenuation = AttenuationRenderer(
             background_color=self.config.background_color,
-            background_trainable=self.config.background_trainable,
             )
         self.renderer_rgb = self.renderer_attenuation
+        self.flat_field = torch.tensor(0.2)
 
         # shaders
         self.normals_shader = NormalsShader()
@@ -261,9 +261,10 @@ class TemplateModel(Model):
         expected_depth = self.renderer_expected_depth(weights=weights, ray_samples=ray_samples)
         accumulation = self.renderer_accumulation(weights=weights)
         attenuation = self.renderer_attenuation(densities=field_outputs[FieldHeadNames.DENSITY], ray_samples=ray_samples)
+        rgb = self.renderer_attenuation.merge_flat_field(attenuation, self.flat_field) * attenuation.new_ones(1,3)
 
         outputs = {
-            "rgb": attenuation*attenuation.new_ones(1,3), # replace by attenuation
+            "rgb": rgb,
             "accumulation": accumulation,
             "depth": depth,
             "expected_depth": expected_depth,

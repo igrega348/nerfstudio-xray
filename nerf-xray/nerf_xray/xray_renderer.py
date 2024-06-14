@@ -21,26 +21,16 @@ class AttenuationRenderer(nn.Module):
 
     def __init__(
         self, 
-        background_color: BackgroundColor = "white",
-        background_trainable: bool = False,
+        background_color: BackgroundColor = "black",
     ) -> None:
         super().__init__()
-        if background_trainable:
-            assert not isinstance(background_color, str)
-            background_color: BackgroundColor = torch.tensor(background_color)
-            self.background_color = nn.Parameter(background_color, requires_grad=True)
-        else:
-            if isinstance(background_color, str):
-                self.background_color: BackgroundColor = background_color
-            else:
-                self.background_color: BackgroundColor = torch.tensor(background_color)
+        self.background_color: BackgroundColor = background_color
 
     @classmethod
     def forward(
         cls,
         densities: Float[Tensor, "*batch num_samples 1"],
         ray_samples: RaySamples,
-        background_color: Optional[BackgroundColor] = None,
     ) -> Float[Tensor, "*batch 1"]:
 
         delta_density = ray_samples.deltas * densities
@@ -48,6 +38,25 @@ class AttenuationRenderer(nn.Module):
         attenuation = torch.exp(-acc) 
         attenuation = torch.nan_to_num(attenuation)
         return attenuation
+    
+    @classmethod
+    def merge_flat_field(
+        cls,
+        attenuation: Float[Tensor, "*batch 1"],
+        flat_field: Float[Tensor, "*batch 1"],
+    ) -> Float[Tensor, "*batch 1"]:
+        """Merges a flat field into the attenuation.
+
+        Args:
+            attenuation: Attenuation.
+            flat_field: Flat field.
+
+        Returns:
+            Merged attenuation.
+        """
+        flat_field = nn.functional.relu(flat_field)
+        flat_field = torch.exp(-flat_field)
+        return attenuation * flat_field
     
     @classmethod
     def get_background_color(
