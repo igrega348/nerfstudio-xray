@@ -21,7 +21,7 @@ class AttenuationRenderer(nn.Module):
 
     def __init__(
         self, 
-        background_color: BackgroundColor = "black",
+        background_color: BackgroundColor = "white",
     ) -> None:
         super().__init__()
         self.background_color: BackgroundColor = background_color

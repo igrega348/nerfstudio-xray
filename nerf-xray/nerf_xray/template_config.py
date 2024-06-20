@@ -27,7 +27,7 @@ nerf_xray = MethodSpecification(
         steps_per_eval_all_images=10000,
         steps_per_eval_image=100,
         steps_per_save=5000,
-        max_num_iterations=500,
+        max_num_iterations=1001,
         mixed_precision=True,
         pipeline=TemplatePipelineConfig(
             datamanager=TemplateDataManagerConfig(
@@ -45,8 +45,8 @@ nerf_xray = MethodSpecification(
             ),
             model=TemplateModelConfig(
                 use_appearance_embedding=False,
-                background_color='black',
-                flat_field_value=0.1,
+                background_color='white',
+                flat_field_value=0.02,
                 flat_field_trainable=True,
                 eval_num_rays_per_chunk=1 << 15,
                 disable_scene_contraction=True,
@@ -63,17 +63,21 @@ nerf_xray = MethodSpecification(
                 "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=50000),
             },
+            "flat_field": {
+                "optimizer": RAdamOptimizerConfig(lr=1e-4, eps=1e-15),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-6, max_steps=50000),
+            },
             "camera_opt": {
-                # "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-15),
-                # "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=5000),
-                "optimizer": AdamOptimizerConfig(lr=1e-11, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-12, max_steps=5000),
+                "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-15),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=5000),
+                # "optimizer": AdamOptimizerConfig(lr=1e-11, eps=1e-15),
+                # "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-12, max_steps=5000),
             },
         },
         viewer=ViewerConfig(
             num_rays_per_chunk=1 << 15, 
             camera_frustum_scale=0.5,
-            quit_on_train_completion=True,
+            # quit_on_train_completion=True,
         ),
         vis="tensorboard",
     ),

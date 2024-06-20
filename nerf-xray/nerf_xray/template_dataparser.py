@@ -395,6 +395,8 @@ class TemplateDataParser(Nerfstudio):
 
         # reinitialize metadata for dataparser_outputs
         metadata = {}
+        if 'flat_field' in meta:
+            metadata['flat_field'] = meta['flat_field']
 
         dataparser_outputs = DataparserOutputs(
             image_filenames=image_filenames,

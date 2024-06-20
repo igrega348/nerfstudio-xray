@@ -130,9 +130,9 @@ class TemplateNerfField(NerfactoField):
         # Rectifying the density with an exponential is much more stable than a ReLU or
         # softplus, because it enables high post-activation (float32) density outputs
         # from smaller internal (float16) parameters.
-        # density = self.average_init_density * trunc_exp(density_before_activation.to(positions))
+        density = self.average_init_density * trunc_exp(density_before_activation.to(positions))
         # try sigmoid activation
-        density = self.average_init_density * torch.sigmoid(density_before_activation.to(positions))
+        # density = self.average_init_density * torch.sigmoid(density_before_activation.to(positions))
         density = density * selector[..., None]
         return density, base_mlp_out
 

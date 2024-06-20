@@ -18,6 +18,7 @@ from nerfstudio.engine.callbacks import (TrainingCallback,
                                          TrainingCallbackLocation)
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SceneContraction
+from nerfstudio.utils.rich_utils import CONSOLE
 from nerfstudio.fields.density_fields import HashMLPDensityField
 from nerfstudio.fields.nerfacto_field import NerfactoField
 from nerfstudio.model_components.losses import (
@@ -166,8 +167,15 @@ class TemplateModel(Model):
             background_color=self.config.background_color,
             )
         self.renderer_rgb = self.renderer_attenuation
+        ff = self.kwargs['metadata'].get('flat_field', None)
+        if ff is not None:
+            _ff = -np.log(ff)
+            CONSOLE.print(f"Using flat field from metadata: {ff:.3f} -> {_ff:.3f}")
+            ff = _ff
+        else:
+            ff = self.config.flat_field_value
         self.flat_field = torch.nn.Parameter(
-            torch.tensor(self.config.flat_field_value), 
+            torch.tensor(ff, dtype=torch.float32), 
             self.config.flat_field_trainable
         )
 
@@ -194,7 +202,7 @@ class TemplateModel(Model):
         param_groups["fields"] = list(self.field.parameters())
         # trainable background color
         if self.config.flat_field_trainable:
-            param_groups["fields"].append(self.flat_field)
+            param_groups["flat_field"] = [self.flat_field]
         self.camera_optimizer.get_param_groups(param_groups=param_groups)
         return param_groups
 
