@@ -59,6 +59,14 @@ class Object:
             )
         if d['type'] == 'box':
             return Box(d['center'], d['sides'], d['rho'])
+        if d['type'] == 'parallelepiped':
+            return Parallelepiped(
+                torch.tensor(d['origin']),
+                torch.tensor(d['v1']),
+                torch.tensor(d['v2']),
+                torch.tensor(d['v3']),
+                d['rho']
+            )
         raise ValueError(f"Unknown object type: {d['type']}")
 
 class ObjectCollection(Object):
@@ -176,7 +184,21 @@ class Box(Object):
         rho = pos.new_zeros(mask_inside.size())
         rho[mask_inside] = self.rho
         return rho
-    
+
+class Parallelepiped(Object):
+    def __init__(self, origin: torch.Tensor, v1: torch.Tensor, v2: torch.Tensor, v3: torch.Tensor, rho: float):
+        self.origin = origin
+        self.v1 = v1
+        self.v2 = v2
+        self.v3 = v3
+        self.rho = rho
+        self.cube = Cube(torch.tensor([0.5,0.5,0.5]), 1, rho)
+        self.inv = torch.inverse(torch.stack([v1, v2, v3], dim=1))
+
+    def density(self, pos: torch.Tensor):
+        pos = pos - self.origin.to(pos)
+        pos = pos @ self.inv.to(pos)
+        return self.cube.density(pos)
 
 class VoxelGrid(Object):
     def __init__(self, rho: torch.Tensor):

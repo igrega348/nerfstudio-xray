@@ -283,7 +283,16 @@ class TemplatePipeline(VanillaPipeline):
         else:
             raise NotImplementedError("Only matplotlib supported for now")
     
-    def eval_along_plane(self, plane='xy', distance=0.5, fn=None, engine='cv', resolution=500):
+    def eval_along_plane(
+        self, 
+        target: Literal['field', 'datamanager', 'both'],
+        plane='xy', 
+        distance=0.0, 
+        fn=None, 
+        engine='cv', 
+        resolution=500,
+        rhomax=1.0
+    ):
         a = torch.linspace(-1, 1, resolution, device=self.device) # scene box will map to 0-1
         b = torch.linspace(-1, 1, resolution, device=self.device) # scene box will map to 0-1
         A,B = torch.meshgrid(a,b, indexing='ij')
@@ -294,22 +303,39 @@ class TemplatePipeline(VanillaPipeline):
             pos = torch.stack([C, A, B], dim=-1)
         elif plane == 'xz':
             pos = torch.stack([A, C, B], dim=-1)
-        with torch.no_grad():
-            pred_density = self._model.field.get_density_from_pos(pos)
+        if target in ['field', 'both']:
+            with torch.no_grad():
+                pred_density = self._model.field.get_density_from_pos(pos).squeeze()
+                pred_density = pred_density.cpu().numpy()
+        if target in ['datamanager', 'both']:
+            obj_density = self.datamanager.object.density(pos).squeeze()
+            obj_density = obj_density.cpu().numpy()
+        if target == 'both':
+            density = np.concatenate([obj_density, pred_density], axis=1)
+        elif target == 'field':
+            density = pred_density
+        elif target == 'datamanager':
+            density = obj_density
+
         if engine=='matplotlib':
-            plt.figure(figsize=(6,6))
-            plt.imshow(pred_density.cpu().numpy(), extent=[0,1,0,1], origin='lower', cmap='gray', vmin=0, vmax=1)
+            plt.figure(figsize=(6,6) if target!='both' else (12,6))
+            plt.imshow(
+                density, 
+                extent=[-1,1,-1,1] if plane=='xy' else [-1,3,-1,1], 
+                origin='lower', cmap='gray', vmin=0, vmax=1
+            )
             if fn is not None:
                 plt.savefig(fn)
             plt.close()
         elif engine in ['cv', 'opencv']:
-            pred_density = pred_density.cpu().numpy()
-            # pred_density = (pred_density - pred_density.min())/(pred_density.max() - pred_density.min())
-            # pred_density is between 0 and 1 anyways
-            pred_density = (pred_density*255).astype(np.uint8)
+            density /= rhomax
+            density = np.clip(density, 0, 1)
+            density = (density*255).astype(np.uint8)
             if fn is not None:
                 if isinstance(fn, Path):
                     fn = fn.as_posix()
-                cv.imwrite(fn, pred_density)
+                cv.imwrite(fn, density)
+        elif engine=='numpy':
+            return density
         else:
             raise ValueError(f"Invalid engine {engine}")
