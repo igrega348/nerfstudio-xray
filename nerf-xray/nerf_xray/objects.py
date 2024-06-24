@@ -197,7 +197,7 @@ class Parallelepiped(Object):
 
     def density(self, pos: torch.Tensor):
         pos = pos - self.origin.to(pos)
-        pos = pos @ self.inv.to(pos)
+        pos = torch.einsum('ij,...j->...i', self.inv.to(pos), pos)
         return self.cube.density(pos)
 
 class VoxelGrid(Object):
