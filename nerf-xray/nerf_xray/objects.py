@@ -25,7 +25,7 @@ class Object:
         path = Path(path)
         if path.suffix == ".yaml":
             return Object.from_yaml(path)
-        if path.suffix == ".npy":
+        if path.suffix in [".npy",".npz"]:
             return VoxelGrid.from_file(path)
         raise ValueError(f"Unknown file type: {path.suffix}")
 
@@ -185,8 +185,12 @@ class VoxelGrid(Object):
     @staticmethod
     def from_file(path: Union[str, Path]) -> "VoxelGrid":
         path = Path(path)
-        assert path.suffix == ".npy", f"Expected .npy file, got {path.suffix}"
-        rho = torch.tensor(np.load(path))
+        if path.suffix == ".npz":
+            with np.load(path) as data:
+                rho = torch.tensor(data["vol"])
+        else:
+            assert path.suffix == ".npy", f"Expected .npy file, got {path.suffix}"
+            rho = torch.tensor(np.load(path))
         return VoxelGrid(rho)
 
     def density(self, pos: torch.Tensor):
