@@ -51,6 +51,8 @@ class TemplatePipelineConfig(VanillaPipelineConfig):
     """specifies if the training gets volumetric supervision"""
     volumetric_supervision_start_step: int = 100
     """start providing volumetric supervision at this step"""
+    volumetric_supervision_coefficient: float = 0.005
+    """coefficient for the volumetric supervision loss"""
     load_density_ckpt: Optional[Path] = None
     """specifies the path to the density field to load"""
 
@@ -248,7 +250,7 @@ class TemplatePipeline(VanillaPipeline):
         if self.config.volumetric_supervision and step>self.config.volumetric_supervision_start_step:
             # provide supervision to visual training. Use cross-corelation loss
             density_loss = self.calculate_density_loss(sampling='random')
-            loss_dict['volumetric_loss'] = -0.01*density_loss['normed_correlation']
+            loss_dict['volumetric_loss'] = -self.config.volumetric_supervision_coefficient*density_loss['normed_correlation']
 
         return model_outputs, loss_dict, metrics_dict
     
@@ -306,10 +308,11 @@ class TemplatePipeline(VanillaPipeline):
         if target in ['field', 'both']:
             with torch.no_grad():
                 pred_density = self._model.field.get_density_from_pos(pos).squeeze()
-                pred_density = pred_density.cpu().numpy()
+                pred_density = pred_density.cpu().numpy() / rhomax
         if target in ['datamanager', 'both']:
             obj_density = self.datamanager.object.density(pos).squeeze()
-            obj_density = obj_density.cpu().numpy()
+            max_density = self.datamanager.object.max_density
+            obj_density = obj_density.cpu().numpy() / max_density
         if target == 'both':
             density = np.concatenate([obj_density, pred_density], axis=1)
         elif target == 'field':
@@ -328,7 +331,6 @@ class TemplatePipeline(VanillaPipeline):
                 plt.savefig(fn)
             plt.close()
         elif engine in ['cv', 'opencv']:
-            density /= rhomax
             density = np.clip(density, 0, 1)
             density = (density*255).astype(np.uint8)
             if fn is not None:

@@ -8,6 +8,8 @@ import yaml
 
 
 class Object:
+    max_density: float = 1.0
+
     @abstractmethod
     def density(self, pos: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError()
@@ -72,6 +74,7 @@ class Object:
 class ObjectCollection(Object):
     def __init__(self, objects: Iterable[Object]):
         self.objects = list(objects)
+        self.max_density = max(obj.max_density for obj in self.objects)
 
     def density(self, pos: torch.Tensor) -> torch.Tensor:
         # sum densities of all objects clipped between 0 and 1
@@ -89,6 +92,7 @@ class Sphere(Object):
         self.radius = radius
         self.center = center
         self.rho = rho
+        self.max_density = rho
 
     def density(self, pos: torch.Tensor):
         r2 = torch.sum((pos - self.center.to(pos.device))**2, dim=-1)
@@ -102,6 +106,7 @@ class Cube(Object):
         self.side = side
         self.center = center
         self.rho = rho
+        self.max_density = rho
 
     def density(self, pos: torch.Tensor):
         half_side = self.side / 2
@@ -118,6 +123,7 @@ class Cylinder(Object):
         self.p0 = p0
         self.p1 = p1
         self.rho = rho
+        self.max_density = rho
 
     def density(self, pos: torch.Tensor):
         p0 = self.p0.to(pos.device)
@@ -138,6 +144,7 @@ class UnitCell(Object):
         self.struts = struts
         self.min_lims = min_lims.reshape(1,3)
         self.max_lims = max_lims.reshape(1,3)
+        self.max_density = struts.max_density
 
     def density(self, pos: torch.Tensor):
         assert pos.ndim == 2 and pos.size(1) == 3, f"Expected (N, 3) tensor, got {pos.size()}"
@@ -154,6 +161,7 @@ class TessellatedObjColl(Object):
         self.uc = uc  # UnitCell object
         self.min_lims = min_lims.reshape(1,3)  # Minimum limits of the bounding box
         self.max_lims = max_lims.reshape(1,3)  # Maximum limits of the bounding box
+        self.max_density = uc.max_density
 
     def remap(self, pos: torch.Tensor):
         dd = (self.uc.max_lims - self.uc.min_lims).to(pos) # (1,3)
@@ -175,6 +183,7 @@ class Box(Object):
         self.center = center
         self.sides = sides
         self.rho = rho
+        self.max_density = rho
         
     def density(self, pos: torch.Tensor):
         x = torch.abs(pos[:, 0] - self.center[0])
@@ -194,6 +203,7 @@ class Parallelepiped(Object):
         self.rho = rho
         self.cube = Cube(torch.tensor([0.5,0.5,0.5]), 1, rho)
         self.inv = torch.inverse(torch.stack([v1, v2, v3], dim=1))
+        self.max_density = rho
 
     def density(self, pos: torch.Tensor):
         pos = pos - self.origin.to(pos)
@@ -203,16 +213,19 @@ class Parallelepiped(Object):
 class VoxelGrid(Object):
     def __init__(self, rho: torch.Tensor):
         self.rho = rho
+        self.max_density = rho.max().item()
 
     @staticmethod
     def from_file(path: Union[str, Path]) -> "VoxelGrid":
         path = Path(path)
         if path.suffix == ".npz":
             with np.load(path) as data:
-                rho = torch.tensor(data["vol"])
+                vol = np.swapaxes(data["vol"], 0, 2)
+                rho = torch.tensor(vol, dtype=torch.float32)
         else:
             assert path.suffix == ".npy", f"Expected .npy file, got {path.suffix}"
-            rho = torch.tensor(np.load(path))
+            vol = np.load(path).swapaxes(0, 2)
+            rho = torch.tensor(vol, dtype=torch.float32)
         return VoxelGrid(rho)
 
     def density(self, pos: torch.Tensor):
