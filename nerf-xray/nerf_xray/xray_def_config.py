@@ -20,7 +20,7 @@ from nerf_xray.template_dataparser import TemplateDataParserConfig
 from nerf_xray.template_model import TemplateModelConfig
 from nerf_xray.template_pipeline import TemplatePipelineConfig
 
-nerf_xray = MethodSpecification(
+nerf_def_xray = MethodSpecification(
     config=TrainerConfig(
         method_name="nerf_def_xray", 
         steps_per_eval_batch=10,
