@@ -16,28 +16,28 @@ from .objects import Object
 
 
 @dataclass
-class TemplateDataManagerConfig(VanillaDataManagerConfig):
+class XrayDataManagerConfig(VanillaDataManagerConfig):
     """Template DataManager Config
 
     Add your custom datamanager config parameters here.
     """
 
-    _target: Type = field(default_factory=lambda: TemplateDataManager)
+    _target: Type = field(default_factory=lambda: XrayDataManager)
     volume_grid_file: Optional[Path] = None
     """load volume grid into object"""
 
-class TemplateDataManager(VanillaDataManager):
+class XrayDataManager(VanillaDataManager):
     """Template DataManager
 
     Args:
         config: the DataManagerConfig used to instantiate class
     """
 
-    config: TemplateDataManagerConfig
+    config: XrayDataManagerConfig
 
     def __init__(
         self,
-        config: TemplateDataManagerConfig,
+        config: XrayDataManagerConfig,
         device: Union[torch.device, str] = "cpu",
         test_mode: Literal["test", "val", "inference"] = "val",
         world_size: int = 1,

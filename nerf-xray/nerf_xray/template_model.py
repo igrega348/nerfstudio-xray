@@ -39,6 +39,10 @@ from nerfstudio.utils import colormaps
 from torch import Tensor
 from torch.nn import Parameter
 
+from .deformation_fields import (AffineTemporalDeformationField,
+                                 BsplineTemporalDeformationField1d,
+                                 BsplineTemporalDeformationField3d,
+                                 IdentityDeformationField)
 from .template_field import TemplateNerfField
 from .xray_renderer import AttenuationRenderer
 
@@ -51,8 +55,13 @@ class TemplateModelConfig(NerfactoModelConfig):
     """
 
     _target: Type = field(default_factory=lambda: TemplateModel)
-    num_MLP_layers: int = 2
-    """number of layers in density MLP"""
+    # need to add flags for whether field is frozen or deformation is frozen
+    train_density_field: bool = True
+    """whether to train the density field"""
+    train_deformation_field: bool = False
+    """whether to train the deformation field"""
+    deformation_field: Literal["temporal_bspline", "temporal_1d_bspline", "identity"] = "identity"
+    """type of deformation field"""
     flat_field_value: float = 0.0
     """initial value of flat field"""
     flat_field_trainable: bool = False
@@ -84,7 +93,6 @@ class TemplateModel(Model):
             self.scene_box.aabb,
             hidden_dim=self.config.hidden_dim,
             num_levels=self.config.num_levels,
-            num_layers=self.config.num_MLP_layers,
             max_res=self.config.max_res,
             base_res=self.config.base_res,
             features_per_level=self.config.features_per_level,
@@ -99,6 +107,21 @@ class TemplateModel(Model):
             average_init_density=self.config.average_init_density,
             implementation=self.config.implementation,
         )
+
+        if self.config.deformation_field == "temporal_bspline":
+            self.deformation_field = BsplineTemporalDeformationField3d(support_range=[(0,1),(0,1),(0,1)], num_control_points=(6,6,6), support_outside=True)
+        elif self.config.deformation_field == 'temporal_1d_bspline':
+            self.deformation_field = BsplineTemporalDeformationField1d(support_range=(0,1), num_control_points=4, support_outside=True)
+        elif self.config.deformation_field == "identity":
+            self.deformation_field = None #IdentityDeformationField()
+        else:
+            raise ValueError(f"Unknown deformation field type: {self.config.deformation_field}")
+
+        # train density or deformation field
+        if not self.config.train_density_field:
+            self.field.requires_grad_(False)
+        if not self.config.train_deformation_field and self.deformation_field is not None:
+            self.deformation_field.requires_grad_(False)
 
         self.camera_optimizer: CameraOptimizer = self.config.camera_optimizer.setup(
             num_cameras=self.num_train_data, device="cpu"
@@ -200,6 +223,9 @@ class TemplateModel(Model):
         param_groups = {}
         param_groups["proposal_networks"] = list(self.proposal_networks.parameters())
         param_groups["fields"] = list(self.field.parameters())
+        # add deformation field to fields
+        if self.deformation_field is not None:
+            param_groups['fields'].extend(list(self.deformation_field.parameters()))
         # trainable background color
         if self.config.flat_field_trainable:
             param_groups["flat_field"] = [self.flat_field]
@@ -260,7 +286,7 @@ class TemplateModel(Model):
             self.camera_optimizer.apply_to_raybundle(ray_bundle)
         ray_samples: RaySamples
         ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
-        field_outputs = self.field.forward(ray_samples, compute_normals=self.config.predict_normals)
+        field_outputs = self.field.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=self.deformation_field)
         if self.config.use_gradient_scaling:
             field_outputs = scale_gradients_by_distance_squared(field_outputs, ray_samples)
 

@@ -15,7 +15,7 @@ from nerfstudio.engine.schedulers import ExponentialDecaySchedulerConfig
 from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
 
-from nerf_xray.template_datamanager import TemplateDataManagerConfig
+from nerf_xray.xray_datamanager import XrayDataManagerConfig
 from nerf_xray.template_dataparser import TemplateDataParserConfig
 from nerf_xray.template_model import TemplateModelConfig
 from nerf_xray.template_pipeline import TemplatePipelineConfig
@@ -30,15 +30,12 @@ nerf_xray = MethodSpecification(
         max_num_iterations=1001,
         mixed_precision=True,
         pipeline=TemplatePipelineConfig(
-            datamanager=TemplateDataManagerConfig(
+            datamanager=XrayDataManagerConfig(
                 dataparser=TemplateDataParserConfig(
                     auto_scale_poses=False,
                     center_method='none',
                     downscale_factors={'train': 1, 'val': 2, 'test': 2},
-                    # eval_mode='fraction',
                     eval_mode='filename+modulo',
-                    # modulo=16,
-                    # i0=1
                 ),
                 train_num_rays_per_batch=4096,
                 eval_num_rays_per_batch=4096,

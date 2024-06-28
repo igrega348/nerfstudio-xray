@@ -33,7 +33,7 @@ from torch import Tensor
 from torch.cuda.amp.grad_scaler import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from nerf_xray.template_datamanager import TemplateDataManagerConfig
+from nerf_xray.xray_datamanager import XrayDataManagerConfig
 from nerf_xray.template_model import TemplateModel, TemplateModelConfig
 
 
@@ -43,7 +43,7 @@ class TemplatePipelineConfig(VanillaPipelineConfig):
 
     _target: Type = field(default_factory=lambda: TemplatePipeline)
     """target class to instantiate"""
-    datamanager: DataManagerConfig = TemplateDataManagerConfig()
+    datamanager: DataManagerConfig = XrayDataManagerConfig()
     """specifies the datamanager config"""
     model: ModelConfig = TemplateModelConfig()
     """specifies the model config"""
@@ -136,8 +136,6 @@ class TemplatePipeline(VanillaPipeline):
         if self.datamanager.object is not None:
             metrics_dict.update(self.calculate_density_loss())
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
-        # evaluate along a few lines
-        # self.eval_along_lines(b=[0.5,0.75,0.22,0.21,0.68], c=[0.43,0.79,0.2,0.75,0.3], line='x', fn=f'C:/Users/ig348/Documents/nerfstudio/outputs/balls/method-template/line_{step:04d}.png')
         self.train()
         return model_outputs, loss_dict, metrics_dict
     
@@ -204,14 +202,21 @@ class TemplatePipeline(VanillaPipeline):
         self.train()
         return metrics_dict
     
-    def calculate_density_loss(self, sampling: str = 'random'):
+    def calculate_density_loss(self, sampling: str = 'random', time: Optional[float] = None) -> Dict[str, Any]:
         if sampling=='grid':
             pos = torch.linspace(-1, 1, 200, device=self.device) # scene box goes between -1 and 1 
             pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
         elif sampling=='random':
             pos = 2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0
-        pred_density = self._model.field.get_density_from_pos(pos).squeeze() # remove nograd here so can use in training
-        density = self.datamanager.object.density(pos).squeeze() # density between -1 and 1
+        if time is not None:
+            assert time in [0.0, 1.0], "Time must be 0.0 or 1.0"
+            object = self.datamanager.object if time==0.0 else self.datamanager.final_object
+            pred_density = self._model.field.get_density_from_pos(pos, deformation_field=self._model.deformation_field, time=time).squeeze()
+        else:
+            object = self.datamanager.object
+            pred_density = self._model.field.get_density_from_pos(pos).squeeze()
+
+        density = object.density(pos).squeeze() # density between -1 and 1
         
         x = density
         y = pred_density
@@ -249,8 +254,18 @@ class TemplatePipeline(VanillaPipeline):
         
         if self.config.volumetric_supervision and step>self.config.volumetric_supervision_start_step:
             # provide supervision to visual training. Use cross-corelation loss
-            density_loss = self.calculate_density_loss(sampling='random')
-            loss_dict['volumetric_loss'] = -self.config.volumetric_supervision_coefficient*density_loss['normed_correlation']
+            assert self.datamanager.object is not None
+            if self.model.deformation_field is not None:
+                time = 0.0
+                density_loss = self.calculate_density_loss(sampling='random', time=time)
+                loss_dict[f'volumetric_loss_{time:.0f}'] = -self.config.volumetric_supervision_coefficient*density_loss['normed_correlation']
+                if self.datamanager.final_object is not None:
+                    time = 1.0
+                    density_loss = self.calculate_density_loss(sampling='random', time=time)
+                    loss_dict[f'volumetric_loss_{time:.0f}'] = -self.config.volumetric_supervision_coefficient*density_loss['normed_correlation']
+            else:
+                density_loss = self.calculate_density_loss(sampling='random')
+                loss_dict['volumetric_loss'] = -self.config.volumetric_supervision_coefficient*density_loss['normed_correlation']
 
         return model_outputs, loss_dict, metrics_dict
     

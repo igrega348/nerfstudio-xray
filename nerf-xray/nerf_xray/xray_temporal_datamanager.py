@@ -17,20 +17,20 @@ from nerfstudio.model_components.ray_generators import RayGenerator
 from nerfstudio.utils import profiler
 from nerfstudio.utils.rich_utils import CONSOLE
 from typing_extensions import TypeVar
+from nerfstudio.data.datasets.base_dataset import InputDataset
 
 from .objects import Object
-from .template_dataloaders import CacheDataloader
-from .template_dataset import TemplateDataset
+from .xray_temporal_dataloaders import CacheDataloader
 
 
 @dataclass
-class TemplateDataManagerConfig(VanillaDataManagerConfig):
+class XrayTemporalDataManagerConfig(VanillaDataManagerConfig):
     """Template DataManager Config
 
     Add your custom datamanager config parameters here.
     """
 
-    _target: Type = field(default_factory=lambda: TemplateDataManager)
+    _target: Type = field(default_factory=lambda: XrayTemporalDataManager)
     init_volume_grid_file: Optional[Path] = None
     """load initial volume grid into object"""
     final_volume_grid_file: Optional[Path] = None
@@ -39,22 +39,22 @@ class TemplateDataManagerConfig(VanillaDataManagerConfig):
     """Until this time prefer early timestamps"""
 
 
-TDataset = TypeVar("TDataset", bound=TemplateDataset, default=TemplateDataset)
+TDataset = TypeVar("TDataset", bound=InputDataset, default=InputDataset)
 
-class TemplateDataManager(VanillaDataManager, Generic[TDataset]):
-    """Template DataManager
+class XrayTemporalDataManager(VanillaDataManager, Generic[TDataset]):
+    """Xray Temporal DataManager
 
     Args:
         config: the DataManagerConfig used to instantiate class
     """
 
-    config: TemplateDataManagerConfig
+    config: XrayTemporalDataManagerConfig
     train_dataset: TDataset
     eval_dataset: TDataset
 
     def __init__(
         self,
-        config: TemplateDataManagerConfig,
+        config: XrayTemporalDataManagerConfig,
         device: Union[torch.device, str] = "cpu",
         test_mode: Literal["test", "val", "inference"] = "val",
         world_size: int = 1,
@@ -90,7 +90,7 @@ class TemplateDataManager(VanillaDataManager, Generic[TDataset]):
     @cached_property
     def dataset_type(self) -> Type[TDataset]:
         """Returns the dataset type passed as the generic argument"""
-        return TemplateDataset
+        return InputDataset
     
     def setup_train(self):
         """Sets up the data loaders for training"""

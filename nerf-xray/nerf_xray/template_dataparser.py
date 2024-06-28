@@ -25,7 +25,7 @@ from nerfstudio.utils.io import load_from_json
 from nerfstudio.utils.rich_utils import CONSOLE
 from PIL import Image
 
-MAX_AUTO_RESOLUTION = 1600
+MAX_AUTO_RESOLUTION = 2000
 
 
 @dataclass
@@ -73,6 +73,10 @@ class TemplateDataParserConfig(DataParserConfig):
     """Maximum frame index."""
     istep: int = 1
     """Step in frame index."""
+    min_timestamp: float = 0.0
+    """Minimum timestamp for frames."""
+    max_timestamp: float = 1e10
+    """Maximum timestamp for frames."""
 
 def split_files(image_filenames: List, imin: int, imax: int, istep: int) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -169,6 +173,7 @@ class TemplateDataParser(Nerfstudio):
         height = []
         width = []
         distort = []
+        times = []
 
         # sort the frames by fname
         fnames = []
@@ -181,6 +186,10 @@ class TemplateDataParser(Nerfstudio):
         del inds
 
         for frame in frames:
+            # selection based on timestamp
+            if "time" in frame:
+                if frame["time"] < self.config.min_timestamp or frame["time"] > self.config.max_timestamp:
+                    continue
             filepath = Path(frame["file_path"])
             fname = self._get_fname(filepath, data_dir, split)
 
@@ -215,6 +224,7 @@ class TemplateDataParser(Nerfstudio):
                         p2=float(frame["p2"]) if "p2" in frame else 0.0,
                     )
                 )
+            times.append(float(frame.get('time', 0.0))) # covert to float. Default value 0
 
             image_filenames.append(fname)
             poses.append(np.array(frame["transform_matrix"]))
@@ -330,6 +340,7 @@ class TemplateDataParser(Nerfstudio):
         cy = float(meta["cy"]) if cy_fixed else torch.tensor(cy, dtype=torch.float32)[idx_tensor]
         height = int(meta["h"]) if height_fixed else torch.tensor(height, dtype=torch.int32)[idx_tensor]
         width = int(meta["w"]) if width_fixed else torch.tensor(width, dtype=torch.int32)[idx_tensor]
+        times = torch.tensor(times, dtype=torch.float32)[idx_tensor]
         if distort_fixed:
             distortion_params = (
                 torch.tensor(meta["distortion_params"], dtype=torch.float32)
@@ -363,6 +374,7 @@ class TemplateDataParser(Nerfstudio):
             camera_to_worlds=poses[:, :3, :4],
             camera_type=camera_type,
             metadata=metadata,
+            times=times
         )
 
         assert split in self.downscale_factors
@@ -409,6 +421,7 @@ class TemplateDataParser(Nerfstudio):
                 "depth_filenames": depth_filenames if len(depth_filenames) > 0 else None,
                 "depth_unit_scale_factor": self.config.depth_unit_scale_factor,
                 "mask_color": self.config.mask_color,
+                "image_timestamps": times.tolist(),
                 **metadata,
             },
         )
