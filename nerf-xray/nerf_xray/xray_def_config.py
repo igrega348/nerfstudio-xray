@@ -27,14 +27,14 @@ nerf_def_xray = MethodSpecification(
         steps_per_eval_all_images=10000,
         steps_per_eval_image=100,
         steps_per_save=5000,
-        max_num_iterations=1001,
+        max_num_iterations=501,
         mixed_precision=True,
         pipeline=TemplatePipelineConfig(
             datamanager=XrayTemporalDataManagerConfig(
                 dataparser=TemplateDataParserConfig(
                     auto_scale_poses=False,
                     center_method='none',
-                    downscale_factors={'train': 1, 'val': 1, 'test': 1},
+                    downscale_factors={'train': 1, 'val': 2, 'test': 2},
                     eval_mode='filename+modulo',
                 ),
                 train_num_rays_per_batch=4096,
@@ -67,10 +67,10 @@ nerf_def_xray = MethodSpecification(
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-6, max_steps=50000),
             },
             "camera_opt": {
-                "optimizer": AdamOptimizerConfig(lr=1e-5, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=5000),
-                # "optimizer": AdamOptimizerConfig(lr=1e-11, eps=1e-15),
-                # "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-12, max_steps=5000),
+                # "optimizer": AdamOptimizerConfig(lr=1e-5, eps=1e-15),
+                # "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=5000),
+                "optimizer": AdamOptimizerConfig(lr=1e-11, eps=1e-15),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-12, max_steps=5000),
             },
         },
         viewer=ViewerConfig(

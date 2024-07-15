@@ -43,7 +43,7 @@ nerf_xray = MethodSpecification(
             model=TemplateModelConfig(
                 use_appearance_embedding=False,
                 background_color='white',
-                flat_field_value=0.02,
+                flat_field_value=0.0,
                 flat_field_trainable=True,
                 eval_num_rays_per_chunk=1 << 15,
                 disable_scene_contraction=True,
@@ -65,10 +65,10 @@ nerf_xray = MethodSpecification(
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-6, max_steps=50000),
             },
             "camera_opt": {
-                "optimizer": AdamOptimizerConfig(lr=1e-5, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=5000),
-                # "optimizer": AdamOptimizerConfig(lr=1e-11, eps=1e-15),
-                # "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-12, max_steps=5000),
+                # "optimizer": AdamOptimizerConfig(lr=1e-5, eps=1e-15),
+                # "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=5000),
+                "optimizer": AdamOptimizerConfig(lr=1e-11, eps=1e-15),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-12, max_steps=5000),
             },
         },
         viewer=ViewerConfig(

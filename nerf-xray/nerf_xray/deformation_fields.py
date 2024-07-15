@@ -241,6 +241,16 @@ class BSplineField3d(torch.nn.Module):
             T[ix_nan | iy_nan | iz_nan, :] = torch.nan
         return T
     
+    def mean_disp(self, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None):
+        if phi_x is None:
+            phi_x = self.phi_x
+        return phi_x.abs().mean().item()
+    
+    def max_disp(self, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None):
+        if phi_x is None:
+            phi_x = self.phi_x
+        return phi_x.abs().max().item()
+    
 class BsplineDeformationField3d(torch.nn.Module):
     def __init__(
             self, 
@@ -250,15 +260,24 @@ class BsplineDeformationField3d(torch.nn.Module):
             num_control_points: Optional[Tuple[int,int,int]] = None
         ) -> None:
         super().__init__()
+        if phi_x is None:
+            assert num_control_points is not None
+            phi_x = torch.nn.parameter.Parameter(0.01*torch.randn(3,*num_control_points))
         self.bspline_field = BSplineField3d(phi_x, support_outside, support_range, num_control_points)
     
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, times: Optional[Tensor] = None) -> Tensor:
         # x [ray, nsamples, 3]
         x0, x1, x2 = x[...,0].view(-1), x[...,1].view(-1), x[...,2].view(-1)
         x[...,0] += self.bspline_field.displacement(x0, x1, x2, 0).view(x.shape[:-1])
         x[...,1] += self.bspline_field.displacement(x0, x1, x2, 1).view(x.shape[:-1])
         x[...,2] += self.bspline_field.displacement(x0, x1, x2, 2).view(x.shape[:-1])
         return x
+    
+    def mean_disp(self) -> float:
+        return self.bspline_field.mean_disp()
+    
+    def max_disp(self) -> float:
+        return self.bspline_field.max_disp()
     
 class BsplineTemporalDeformationField3d(torch.nn.Module):
     def __init__(

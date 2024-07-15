@@ -42,6 +42,7 @@ from torch.nn import Parameter
 from .deformation_fields import (AffineTemporalDeformationField,
                                  BsplineTemporalDeformationField1d,
                                  BsplineTemporalDeformationField3d,
+                                 BsplineDeformationField3d,
                                  IdentityDeformationField)
 from .template_field import TemplateNerfField
 from .xray_renderer import AttenuationRenderer
@@ -60,7 +61,7 @@ class TemplateModelConfig(NerfactoModelConfig):
     """whether to train the density field"""
     train_deformation_field: bool = False
     """whether to train the deformation field"""
-    deformation_field: Literal["temporal_bspline", "temporal_1d_bspline", "identity"] = "identity"
+    deformation_field: Literal["temporal_bspline", "temporal_1d_bspline", "bspline", "identity"] = "identity"
     """type of deformation field"""
     flat_field_value: float = 0.0
     """initial value of flat field"""
@@ -112,6 +113,8 @@ class TemplateModel(Model):
             self.deformation_field = BsplineTemporalDeformationField3d(support_range=[(0,1),(0,1),(0,1)], num_control_points=(6,6,6), support_outside=True)
         elif self.config.deformation_field == 'temporal_1d_bspline':
             self.deformation_field = BsplineTemporalDeformationField1d(support_range=(0,1), num_control_points=4, support_outside=True)
+        elif self.config.deformation_field == 'bspline':
+            self.deformation_field = BsplineDeformationField3d(phi_x=None, support_outside=True, support_range=[(0,1),(0,1),(0,1)], num_control_points=(6,6,6))
         elif self.config.deformation_field == "identity":
             self.deformation_field = None #IdentityDeformationField()
         else:
@@ -346,6 +349,9 @@ class TemplateModel(Model):
             metrics_dict["distortion"] = distortion_loss(outputs["weights_list"], outputs["ray_samples_list"])
 
         self.camera_optimizer.get_metrics_dict(metrics_dict)
+        if self.deformation_field is not None:
+            metrics_dict["mean_disp"] = self.deformation_field.mean_disp()
+            metrics_dict['max_disp'] = self.deformation_field.max_disp()
         return metrics_dict
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):

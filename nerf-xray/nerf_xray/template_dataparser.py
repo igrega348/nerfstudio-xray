@@ -179,7 +179,7 @@ class TemplateDataParser(Nerfstudio):
         fnames = []
         for frame in meta["frames"]:
             filepath = Path(frame["file_path"])
-            fname = self._get_fname(filepath, data_dir, split)
+            fname = self._get_fname(filepath, data_dir, split, downsample_folder_prefix=str(filepath.parent)+'_')
             fnames.append(fname)
         inds = np.argsort(fnames)
         frames = [meta["frames"][ind] for ind in inds]
@@ -191,7 +191,7 @@ class TemplateDataParser(Nerfstudio):
                 if frame["time"] < self.config.min_timestamp or frame["time"] > self.config.max_timestamp:
                     continue
             filepath = Path(frame["file_path"])
-            fname = self._get_fname(filepath, data_dir, split)
+            fname = self._get_fname(filepath, data_dir, split, downsample_folder_prefix=str(filepath.parent)+'_')
 
             if not fx_fixed:
                 assert "fl_x" in frame, "fx not specified in frame"

@@ -35,7 +35,7 @@ class XrayTemporalDataManagerConfig(VanillaDataManagerConfig):
     """load initial volume grid into object"""
     final_volume_grid_file: Optional[Path] = None
     """load final volume grid into object"""
-    time_proposal_steps: Optional[int] = None
+    time_proposal_steps: Optional[int] = 0
     """Until this time prefer early timestamps"""
 
 
@@ -98,8 +98,8 @@ class XrayTemporalDataManager(VanillaDataManager, Generic[TDataset]):
         CONSOLE.print("Setting up training dataset...")
         self.train_image_dataloader = CacheDataloader(
             self.train_dataset,
-            num_images_to_sample_from=2,
-            num_times_to_repeat_images=0,
+            num_images_to_sample_from=-1,
+            num_times_to_repeat_images=-1,
             device=self.device,
             num_workers=self.world_size * 4,
             pin_memory=True,
