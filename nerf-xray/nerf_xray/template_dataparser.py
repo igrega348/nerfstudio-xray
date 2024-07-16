@@ -279,7 +279,7 @@ class TemplateDataParser(Nerfstudio):
             elif self.config.eval_mode == "filename":
                 i_train, i_eval = get_train_eval_split_filename(image_filenames)
             elif self.config.eval_mode == "filename+modulo":
-                i_train, i_eval = split_files(image_filenames, self.config.imin, self.config.imax, self.config.istep. self.config.indices)
+                i_train, i_eval = split_files(image_filenames, self.config.imin, self.config.imax, self.config.istep, self.config.indices)
             elif self.config.eval_mode == "interval":
                 i_train, i_eval = get_train_eval_split_interval(image_filenames, self.config.eval_interval)
             elif self.config.eval_mode == "all":
