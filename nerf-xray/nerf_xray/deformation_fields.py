@@ -196,11 +196,15 @@ class BSplineField3d(torch.nn.Module):
         T = torch.zeros_like(x, dtype=torch.float32)
         for l in range(4):
             ix_loc = torch.clamp(ix + l, 0, self.grid_size[0]-1)
+            s0 = self.bspline(u, l)
             for m in range(4):
                 iy_loc = torch.clamp(iy + m, 0, self.grid_size[1]-1)
+                s1 = self.bspline(v, m)
+                s0xs1 = s0 * s1
                 for n in range(4):
                     iz_loc = torch.clamp(iz + n, 0, self.grid_size[2]-1)
-                    T += self.bspline(u, l) * self.bspline(v, m) * self.bspline(w, n) * phi_x[i, ix_loc, iy_loc, iz_loc]
+                    s2 = self.bspline(w, n)
+                    T += s0xs1 * s2 * phi_x[i, ix_loc, iy_loc, iz_loc]
         if not self.support_outside:
             T[ix_nan | iy_nan | iz_nan] = torch.nan
         return T
@@ -231,12 +235,16 @@ class BSplineField3d(torch.nn.Module):
         u_shape = u.shape
         for l in range(4):
             ix_loc = torch.clamp(ix + l, 0, self.grid_size[0]-1)
+            s0 = self.bspline(u, l).view(*u_shape,1)
             for m in range(4):
                 iy_loc = torch.clamp(iy + m, 0, self.grid_size[1]-1)
+                s1 = self.bspline(v, m).view(*u_shape,1)
+                s0xs1 = s0 * s1
                 for n in range(4):
                     iz_loc = torch.clamp(iz + n, 0, self.grid_size[2]-1)
                     # careful. Swapped order of axes in phi_x
-                    T[...,:] += self.bspline(u, l).view(*u_shape,1) * self.bspline(v, m).view(*u_shape,1) * self.bspline(w, n).view(*u_shape,1) * phi_x[ix_loc, iy_loc, iz_loc, :]
+                    s2 = self.bspline(w, n).view(*u_shape,1)
+                    T[...,:] += s0xs1 * s2 * phi_x[ix_loc, iy_loc, iz_loc, :]
         if not self.support_outside:
             T[ix_nan | iy_nan | iz_nan, :] = torch.nan
         return T
