@@ -98,8 +98,8 @@ class XrayTemporalDataManager(VanillaDataManager, Generic[TDataset]):
         CONSOLE.print("Setting up training dataset...")
         self.train_image_dataloader = CacheDataloader(
             self.train_dataset,
-            num_images_to_sample_from=-1,
-            num_times_to_repeat_images=-1,
+            num_images_to_sample_from=-1, # temporary hack for using just 1 timestamp
+            num_times_to_repeat_images=-1, # temporary hack for using just 1 timestamp
             device=self.device,
             num_workers=self.world_size * 4,
             pin_memory=True,
