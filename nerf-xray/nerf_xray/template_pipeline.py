@@ -269,7 +269,15 @@ class TemplatePipeline(VanillaPipeline):
 
         return model_outputs, loss_dict, metrics_dict
     
-    def eval_along_lines(self, b: Sequence[float], c: Sequence[float], line='x', fn=None, engine='matplotlib'):
+    def eval_along_lines(
+        self, 
+        b: Sequence[float], 
+        c: Sequence[float], 
+        line='x', 
+        fn=None, 
+        engine='matplotlib'
+        time=0.0
+    ):
         a = torch.linspace(0, 1, 500, device=self.device)
         bc = torch.ones_like(a)
         pred_densities = []
@@ -282,7 +290,10 @@ class TemplatePipeline(VanillaPipeline):
                     pos = torch.stack([bc*_b, a, bc*_c], dim=-1)
                 elif line == 'z':
                     pos = torch.stack([bc*_b, bc*_c, a], dim=-1)
-                pred_density = self._model.field.get_density_from_pos(pos)
+                if self.model.deformation_field is not None:
+                    pred_density = self._model.field.get_density_from_pos(pos, deformation_field=self._model.deformation_field, time=time)
+                else:
+                    pred_density = self._model.field.get_density_from_pos(pos)
                 pred_densities.append(pred_density.cpu().numpy())
                 true_density = self.datamanager.object.t_density(pos)
                 true_densities.append(true_density.cpu().numpy())
@@ -308,7 +319,8 @@ class TemplatePipeline(VanillaPipeline):
         fn=None, 
         engine='cv', 
         resolution=500,
-        rhomax=1.0
+        rhomax=1.0,
+        time=0.0
     ):
         a = torch.linspace(-1, 1, resolution, device=self.device) # scene box will map to 0-1
         b = torch.linspace(-1, 1, resolution, device=self.device) # scene box will map to 0-1
@@ -322,7 +334,10 @@ class TemplatePipeline(VanillaPipeline):
             pos = torch.stack([A, C, B], dim=-1)
         if target in ['field', 'both']:
             with torch.no_grad():
-                pred_density = self._model.field.get_density_from_pos(pos).squeeze()
+                if self.model.deformation_field is not None:
+                    pred_density = self._model.field.get_density_from_pos(pos, deformation_field=self._model.deformation_field, time=time).squeeze()
+                else:
+                    pred_density = self._model.field.get_density_from_pos(pos).squeeze()
                 pred_density = pred_density.cpu().numpy() / rhomax
         if target in ['datamanager', 'both']:
             obj_density = self.datamanager.object.density(pos).squeeze()
