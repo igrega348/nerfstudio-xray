@@ -275,7 +275,7 @@ class TemplatePipeline(VanillaPipeline):
         c: Sequence[float], 
         line='x', 
         fn=None, 
-        engine='matplotlib'
+        engine='matplotlib',
         time=0.0
     ):
         a = torch.linspace(0, 1, 500, device=self.device)
