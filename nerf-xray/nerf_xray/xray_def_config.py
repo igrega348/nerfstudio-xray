@@ -10,7 +10,8 @@ from nerfstudio.configs.base_config import ViewerConfig
 from nerfstudio.data.dataparsers.nerfstudio_dataparser import \
     NerfstudioDataParserConfig
 from nerfstudio.engine.optimizers import (AdamOptimizerConfig,
-                                          RAdamOptimizerConfig)
+                                          RAdamOptimizerConfig,
+                                          AdamWOptimizerConfig)
 from nerfstudio.engine.schedulers import ExponentialDecaySchedulerConfig
 from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
@@ -59,7 +60,7 @@ nerf_def_xray = MethodSpecification(
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.0001, max_steps=200000),
             },
             "fields": {
-                "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),
+                "optimizer": AdamWOptimizerConfig(lr=1e-2, eps=1e-15, weight_decay=1e-2),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=50000),
             },
             "flat_field": {
