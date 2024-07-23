@@ -402,25 +402,52 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
             self.phi_x = None
             self.weight_nn = NeuralPhiX(3*np.prod(num_control_points), 3, 16)
         self.bspline_field = BSplineField3d(support_outside=support_outside, support_range=support_range, num_control_points=num_control_points)
+        self.support_range = support_range
 
     def forward(self, positions: Tensor, times: Tensor) -> Tensor:
         # positions, times of shape [ray, nsamples, 3]
-        x0, x1, x2 = positions[...,0].view(-1), positions[...,1].view(-1), positions[...,2].view(-1)
-        # x0, x1, x2 = positions[...,0], positions[...,1], positions[...,2]
+        displacement = positions.new_zeros(positions.shape)
         uq_times = torch.unique(times)
-        assert len(uq_times)==1
-        if self.phi_x is None:
-            phi = self.weight_nn(uq_times[0].view(-1,1)).view(*self.bspline_field.grid_size, 3)
-        else:
-            phi = self.phi_x[:uq_times[0]+1].sum(dim=0)
+        for t in uq_times:
+            mask = (times == t).squeeze()
+            x = positions[mask]
+            x0, x1, x2 = x[:,0], x[:,1], x[:,2]
+            if self.phi_x is None:
+                phi = self.weight_nn(t.view(-1,1)).view(*self.bspline_field.grid_size, 3)
+            else:
+                phi = self.phi_x[:t+1].sum(dim=0)
+            displacement[mask] = self.bspline_field.vectorized_displacement(x0, x1, x2, phi_x=phi)
+            # displacement = self.bspline_field.vectorized_displacement(x0, x1, x2, phi_x=phi).view(positions.shape)
+            # return positions + displacement
+            # out = positions.clone()
+            # out[...,0] += self.bspline_field.displacement(x0, x1, x2, 0, phi_x=phi).view(positions.shape[:-1])
+            # out[...,1] += self.bspline_field.displacement(x0, x1, x2, 1, phi_x=phi).view(positions.shape[:-1])
+            # out[...,2] += self.bspline_field.displacement(x0, x1, x2, 2, phi_x=phi).view(positions.shape[:-1])
+        # uq_times = torch.unique(times)
+        # _t = uq_times[0]
+        # x0, x1, x2 = positions[...,0].view(-1), positions[...,1].view(-1), positions[...,2].view(-1)
+        # if self.phi_x is None:
+        #     phi = self.weight_nn(_t.view(-1,1)).view(*self.bspline_field.grid_size, 3)
+        # else:
+        #     phi = self.phi_x[:_t+1].sum(dim=0)
         # displacement = self.bspline_field.vectorized_displacement(x0, x1, x2, phi_x=phi).view(positions.shape)
-        # return positions + displacement
-        out = positions.clone()
-        out[...,0] += self.bspline_field.displacement(x0, x1, x2, 0, phi_x=phi).view(positions.shape[:-1])
-        out[...,1] += self.bspline_field.displacement(x0, x1, x2, 1, phi_x=phi).view(positions.shape[:-1])
-        out[...,2] += self.bspline_field.displacement(x0, x1, x2, 2, phi_x=phi).view(positions.shape[:-1])
-        return out
+        # # out = positions.clone()
+        # # out[...,0] += self.bspline_field.displacement(x0, x1, x2, 0, phi_x=phi).view(positions.shape[:-1])
+        # # out[...,1] += self.bspline_field.displacement(x0, x1, x2, 1, phi_x=phi).view(positions.shape[:-1])
+        # # out[...,2] += self.bspline_field.displacement(x0, x1, x2, 2, phi_x=phi).view(positions.shape[:-1])
+        return positions + displacement
 
+    def mean_disp(self) -> float:
+        # sample and return the mean displacement
+        device = next(self.parameters()).device
+        t = torch.rand(100,1, device=device)
+        return self.weight_nn(t).abs().mean().item()
+
+    def max_disp(self) -> float:
+        # sample and return the max displacement
+        device = next(self.parameters()).device
+        t = torch.rand(100,1, device=device)
+        return self.weight_nn(t).abs().max().item()
 
 class BsplineTemporalDeformationField1d(torch.nn.Module):
     def __init__(
