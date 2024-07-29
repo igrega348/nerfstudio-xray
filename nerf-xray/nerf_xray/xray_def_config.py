@@ -41,6 +41,8 @@ nerf_def_xray = MethodSpecification(
                 ),
                 train_num_rays_per_batch=4096,
                 eval_num_rays_per_batch=2048,
+                max_images_per_timestamp=2,
+                time_proposal_steps=200,
             ),
             model=TemplateModelConfig(
                 use_appearance_embedding=False,
