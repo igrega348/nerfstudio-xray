@@ -9,7 +9,7 @@ import yaml
 import deformation_fields
 
 def_fields = {
-    'bspline': deformation_fields.BsplineDeformationField3d(phi_x=None, support_outside=True, support_range=[(0,1),(0,1),(0,1)], num_control_points=(6,6,6))
+    'bspline': deformation_fields.BsplineDeformationField3d(phi_x=None, support_outside=True, support_range=[(-1,1),(-1,1),(-1,1)], num_control_points=(6,6,6))
 }
 
 def draw_graph(
@@ -84,7 +84,9 @@ def main(
             break
 
     if field_type=='bspline':
+        print(f'Setting phi_x to {key}, shape={data[key].shape}')
         field.bspline_field.phi_x.data = data[key]
+        # field.bspline_field.phi_x.data = field.bspline_field.phi_x.data.permute(3,1,2,0)
 
     true_disp = None
     if uz_string is not None:
@@ -97,10 +99,10 @@ def main(
 
 
     def update_disp(val):
-        x = cv.getTrackbarPos('x','control')/100.0
-        y = cv.getTrackbarPos('y','control')/100.0
+        x = (cv.getTrackbarPos('x','control')-50)/50.0
+        y = (cv.getTrackbarPos('y','control')-50)/50.0
 
-        z = torch.linspace(0,1,50)
+        z = torch.linspace(-1,1,50)
         zn = z.numpy()
         x = x*torch.ones_like(z)
         y = y*torch.ones_like(z)
@@ -108,7 +110,9 @@ def main(
             ux = field.bspline_field.displacement(x,y,z,0).numpy()
             uy = field.bspline_field.displacement(x,y,z,1).numpy()
             uz = field.bspline_field.displacement(x,y,z,2).numpy()
-        ulims = (min(u.min() for u in [ux,uy,uz]), max(u.max() for u in [ux,uy,uz]))
+        # ulims = (min(u.min() for u in [ux,uy,uz]), max(u.max() for u in [ux,uy,uz]))
+        # print(ulims)
+        ulims = (-0.1, 0.1)
         im_x = draw_graph(zn, ux, uzlims=ulims)
         im_y = draw_graph(zn, uy, uzlims=ulims)
         im_z = draw_graph(zn, uz, uzlims=ulims)

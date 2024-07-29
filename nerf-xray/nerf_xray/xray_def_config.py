@@ -39,7 +39,7 @@ nerf_def_xray = MethodSpecification(
                     eval_mode='filename+modulo',
                 ),
                 train_num_rays_per_batch=4096,
-                eval_num_rays_per_batch=4096,
+                eval_num_rays_per_batch=2048,
             ),
             model=TemplateModelConfig(
                 use_appearance_embedding=False,
@@ -60,8 +60,8 @@ nerf_def_xray = MethodSpecification(
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.0001, max_steps=200000),
             },
             "fields": {
-                "optimizer": AdamWOptimizerConfig(lr=1e-2, eps=1e-15, weight_decay=1e-2),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=50000),
+                "optimizer": AdamWOptimizerConfig(lr=1e-3, eps=1e-15, weight_decay=1e-2),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=5000),
             },
             # "fields": {
             #     "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),

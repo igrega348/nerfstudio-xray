@@ -13,7 +13,7 @@ class NeuralPhiX(torch.nn.Module):
             self.W.append(torch.nn.Linear(width, width))
             self.W.append(torch.nn.SELU())
         lin = torch.nn.Linear(width, num_control_points, bias=False)
-        torch.nn.init.xavier_uniform_(lin.weight, gain=1e-1)
+        torch.nn.init.xavier_uniform_(lin.weight, gain=1e-3)
         self.W.append(lin)
 
     def forward(self, x):
@@ -365,7 +365,7 @@ class BsplineDeformationField3d(torch.nn.Module):
         super().__init__()
         if phi_x is None:
             assert num_control_points is not None
-            phi_x = torch.nn.parameter.Parameter(0.01*torch.randn(*num_control_points, 3))
+            phi_x = torch.nn.parameter.Parameter(0.001*torch.randn(*num_control_points, 3))
         self.bspline_field = BSplineField3d(phi_x, support_outside, support_range, num_control_points)
     
     def forward(self, x: Tensor, times: Optional[Tensor] = None) -> Tensor:

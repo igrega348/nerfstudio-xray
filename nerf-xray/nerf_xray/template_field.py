@@ -64,6 +64,7 @@ class TemplateNerfField(NerfactoField):
         average_init_density: float = 1.0,
         implementation: Literal["tcnn", "torch"] = "tcnn",
     ) -> None:
+        assert spatial_distortion is None, "Spatial distortion is not supported."
         super().__init__(
             aabb=aabb,
             num_images=num_images,
@@ -110,10 +111,11 @@ class TemplateNerfField(NerfactoField):
             positions = self.spatial_distortion(positions)
             positions = (positions + 2.0) / 4.0
         else:
-            positions = SceneBox.get_normalized_positions(ray_samples.frustums.get_positions(), self.aabb)
+            positions = ray_samples.frustums.get_positions()
+            if deformation_field is not None:
+                positions = deformation_field(positions, ray_samples.times)
+            positions = SceneBox.get_normalized_positions(positions, self.aabb)
         h_to_shape = ray_samples.frustums.shape
-        if deformation_field is not None:
-            positions = deformation_field(positions, ray_samples.times)
         # Make sure the tcnn gets inputs between 0 and 1.
         selector = ((positions > 0.0) & (positions < 1.0)).all(dim=-1)
         positions = positions * selector[..., None]
