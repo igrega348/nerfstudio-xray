@@ -145,6 +145,11 @@ class CacheDataloader(DataLoader):
             else:
                 collated_batch = self.cached_collated_batch
                 self.num_repeated += 1
+            # only choose indices according to indices_to_sample_from
+            idx = collated_batch["image_idx"]
+            images = collated_batch["image"]
+            mask = torch.isin(idx, torch.tensor(self.indices_to_sample_from, device=idx.device)).cpu()
+            collated_batch = {k: v[mask] for k, v in collated_batch.items()}
             yield collated_batch
 
 

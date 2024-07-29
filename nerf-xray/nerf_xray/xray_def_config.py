@@ -37,6 +37,7 @@ nerf_def_xray = MethodSpecification(
                     center_method='none',
                     downscale_factors={'train': 1, 'val': 2, 'test': 2},
                     eval_mode='filename+modulo',
+                    includes_time=True,
                 ),
                 train_num_rays_per_batch=4096,
                 eval_num_rays_per_batch=2048,

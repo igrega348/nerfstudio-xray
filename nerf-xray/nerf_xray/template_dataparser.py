@@ -79,6 +79,8 @@ class TemplateDataParserConfig(DataParserConfig):
     """Minimum timestamp for frames."""
     max_timestamp: float = 1e10
     """Maximum timestamp for frames."""
+    includes_time: bool = False
+    """Whether the dataset includes time information in the camera poses."""
 
 def split_files(image_filenames: List, imin: int, imax: int, istep: int, indices: List[int]) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -113,6 +115,10 @@ class TemplateDataParser(Nerfstudio):
     """Template DataParser"""
     config: TemplateDataParserConfig
     downscale_factors: Dict[str, float] = {}
+
+    def __init__(self, config: TemplateDataParserConfig):
+        super().__init__(config)
+        self.includes_time = config.includes_time
 
     def _get_fname(self, filepath: Path, data_dir: Path, split: str, downsample_folder_prefix="images_") -> Path:
         """Get the filename of the image file.
