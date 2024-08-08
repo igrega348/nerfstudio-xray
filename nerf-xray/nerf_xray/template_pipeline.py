@@ -340,7 +340,9 @@ class TemplatePipeline(VanillaPipeline):
                     pred_density = self._model.field.get_density_from_pos(pos).squeeze()
                 pred_density = pred_density.cpu().numpy() / rhomax
         if target in ['datamanager', 'both']:
-            obj_density = self.datamanager.object.density(pos).squeeze()
+            pos_shape = pos.shape
+            assert pos_shape[-1] == 3
+            obj_density = self.datamanager.object.density(pos.view(-1,3)).view(pos_shape[:-1])
             max_density = self.datamanager.object.max_density
             obj_density = obj_density.cpu().numpy() / max_density
         if target == 'both':

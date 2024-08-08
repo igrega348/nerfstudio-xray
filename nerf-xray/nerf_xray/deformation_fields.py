@@ -112,6 +112,35 @@ class BSplineField1d(torch.nn.Module):
 
         return x
     
+    def get_A_matrix(
+        self,
+        x: torch.Tensor,
+        sparse: bool = False
+    ) -> torch.Tensor:
+        assert x.ndim == 1
+        dx = self.dx
+        nx = self.phi_x.shape[0]
+        npoints = x.shape[0]
+        u = (x - self.origin - dx)/dx
+        ix = torch.floor(u).long()
+        u = (u - ix).to(x)
+        ind_x = ix[:, None] + torch.arange(4, device=ix.device)
+        out_of_support = (ind_x < 0) | (ind_x >= nx)
+        out_of_support = out_of_support.any(dim=1)
+        ind_x = ind_x.clamp(0, nx-1)
+        weights_x = torch.stack([self.bspline(u, i) for i in range(4)], dim=1)
+        if not self.support_outside: weights_x[out_of_support] = torch.nan
+        if sparse:
+            idx0 = torch.repeat_interleave(torch.arange(npoints, device=x.device), 4)
+            flat_index = ind_x.view(-1)
+            weights_x = weights_x.view(-1)
+            assert idx0.shape == flat_index.shape
+            A = torch.sparse_coo_tensor(torch.vstack([idx0, flat_index]), weights_x, size=(npoints, nx), device=x.device)
+        else:
+            A = x.new_zeros(npoints, nx)
+            A = A.scatter_add_(dim=1, index=ind_x, src=weights_x)
+        return A
+
 class BsplineDeformationField(torch.nn.Module):
     def __init__(self, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None, support_outside: bool = False, num_control_points: Optional[int] = None) -> None:
         super().__init__()
@@ -161,7 +190,7 @@ class BSplineField3d(torch.nn.Module):
 
         Args:
             phi_x (Union[torch.Tensor, np.ndarray]): degrees of freedom 
-                of the B-spline field in order [dim, nx, ny, nz]
+                of the B-spline field in order [nx, ny, nz, dim]
             support_outside (bool, optional): whether to provide support
                 for locations outside the control points. Defaults to False.
         """
@@ -171,21 +200,24 @@ class BSplineField3d(torch.nn.Module):
             assert phi_x.ndim == 4
             assert phi_x.shape[0] > 3 and phi_x.shape[1] > 3 and phi_x.shape[2] > 3
             num_control_points = phi_x.shape[:3]
-        self.phi_x = phi_x
         nx,ny,nz = num_control_points
-        self.grid_size = np.array([nx, ny, nz])
+        grid_size = np.array([nx, ny, nz])
         if support_range is None:
             # provide support for range -1 to 1 along each dimension
-            self.spacing = 2 / (self.grid_size - 3)
-            self.origin = -1 - self.spacing
+            spacing = 2 / (grid_size - 3)
+            origin = -1 - spacing
         else:
             assert len(support_range) == 3 and all(len(r)==2 for r in support_range)
             support_min = np.array([r[0] for r in support_range])
             support_max = np.array([r[1] for r in support_range])
-            self.spacing = (support_max - support_min) / (self.grid_size - 3)
-            self.origin = support_min - self.spacing
-        self.support_outside = support_outside
-        self.A_sparse = A_sparse
+            spacing = (support_max - support_min) / (grid_size - 3)
+            origin = support_min - spacing
+        self.register_buffer('phi_x', phi_x)
+        self.register_buffer('grid_size', torch.tensor(grid_size))
+        self.register_buffer('origin', torch.tensor(origin))
+        self.register_buffer('spacing', torch.tensor(spacing))
+        self.register_buffer('support_outside', torch.tensor(support_outside))
+        self.register_buffer('A_sparse', torch.tensor(A_sparse))
 
     def __repr__(self) -> str:
         f = self
@@ -260,7 +292,7 @@ class BSplineField3d(torch.nn.Module):
         u = u - ix
         v = v - iy
         w = w - iz
-        T = x.new_zeros(*x.shape, 3)
+        T = x.new_zeros(*x.shape, phi_x.shape[-1])
         u_shape = u.shape
         for l in range(4):
             ix_loc = torch.clamp(ix + l, 0, self.grid_size[0]-1)
@@ -325,16 +357,17 @@ class BSplineField3d(torch.nn.Module):
         weights_z = torch.stack([bspline(w, i) for i in range(4)], dim=1)
         weights = (weights_x[:,:,None,None] * weights_y[:,None,:,None] * weights_z[:,None,None,:]).reshape(npoints, 64)
         del u, v, w, weights_x, weights_y, weights_z, ind_x, ind_y, ind_z, ix, iy, iz
-        idx0 = torch.arange(npoints, device=x.device).reshape(-1, 1).repeat(1, 64).reshape(1, -1)
-        flat_index = flat_index.reshape(1, -1)
         if not self.support_outside: weights[out_of_support] = torch.nan
-        weights = weights.flatten()
-        assert idx0.shape == flat_index.shape
+
         if self.A_sparse:
+            idx0 = torch.arange(npoints, device=x.device).reshape(-1, 1).repeat(1, 64).reshape(1, -1)
+            flat_index = flat_index.reshape(1, -1)
+            weights = weights.flatten()
+            assert idx0.shape == flat_index.shape
             A = torch.sparse_coo_tensor(torch.vstack([idx0, flat_index]), weights, size=(npoints, nx*ny*nz), device=x.device)
         else:
             A = x.new_zeros(npoints, nx*ny*nz)
-            A[idx0, flat_index] = weights
+            A = A.scatter_add_(dim=1, index=flat_index, src=weights)
         return A
 
     def matrix_vector_displacement(self, x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, phi_x: Optional[torch.Tensor] = None) -> torch.Tensor:
@@ -371,10 +404,6 @@ class BsplineDeformationField3d(torch.nn.Module):
     def forward(self, x: Tensor, times: Optional[Tensor] = None) -> Tensor:
         # x [ray, nsamples, 3]
         x0, x1, x2 = x[...,0].view(-1), x[...,1].view(-1), x[...,2].view(-1)
-        # x[...,0] += self.bspline_field.displacement(x0, x1, x2, 0).view(x.shape[:-1])
-        # x[...,1] += self.bspline_field.displacement(x0, x1, x2, 1).view(x.shape[:-1])
-        # x[...,2] += self.bspline_field.displacement(x0, x1, x2, 2).view(x.shape[:-1])
-        # u = self.bspline_field.vectorized_displacement(x0, x1, x2).view(x.shape)
         u = self.bspline_field.matrix_vector_displacement(x0, x1, x2).view(x.shape)
         return x+u
     
@@ -402,7 +431,7 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
             self.phi_x = None
             self.weight_nn = NeuralPhiX(3*np.prod(num_control_points), 3, 16)
         self.bspline_field = BSplineField3d(support_outside=support_outside, support_range=support_range, num_control_points=num_control_points)
-        self.support_range = support_range
+        self.register_buffer('support_range', torch.tensor(support_range))
 
     def forward(self, positions: Tensor, times: Tensor) -> Tensor:
         # positions, times of shape [ray, nsamples, 3]
@@ -417,24 +446,6 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
             else:
                 phi = self.phi_x[:t+1].sum(dim=0)
             displacement[mask] = self.bspline_field.vectorized_displacement(x0, x1, x2, phi_x=phi)
-            # displacement = self.bspline_field.vectorized_displacement(x0, x1, x2, phi_x=phi).view(positions.shape)
-            # return positions + displacement
-            # out = positions.clone()
-            # out[...,0] += self.bspline_field.displacement(x0, x1, x2, 0, phi_x=phi).view(positions.shape[:-1])
-            # out[...,1] += self.bspline_field.displacement(x0, x1, x2, 1, phi_x=phi).view(positions.shape[:-1])
-            # out[...,2] += self.bspline_field.displacement(x0, x1, x2, 2, phi_x=phi).view(positions.shape[:-1])
-        # uq_times = torch.unique(times)
-        # _t = uq_times[0]
-        # x0, x1, x2 = positions[...,0].view(-1), positions[...,1].view(-1), positions[...,2].view(-1)
-        # if self.phi_x is None:
-        #     phi = self.weight_nn(_t.view(-1,1)).view(*self.bspline_field.grid_size, 3)
-        # else:
-        #     phi = self.phi_x[:_t+1].sum(dim=0)
-        # displacement = self.bspline_field.vectorized_displacement(x0, x1, x2, phi_x=phi).view(positions.shape)
-        # # out = positions.clone()
-        # # out[...,0] += self.bspline_field.displacement(x0, x1, x2, 0, phi_x=phi).view(positions.shape[:-1])
-        # # out[...,1] += self.bspline_field.displacement(x0, x1, x2, 1, phi_x=phi).view(positions.shape[:-1])
-        # # out[...,2] += self.bspline_field.displacement(x0, x1, x2, 2, phi_x=phi).view(positions.shape[:-1])
         return positions + displacement
 
     def mean_disp(self) -> float:
