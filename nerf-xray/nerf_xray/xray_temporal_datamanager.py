@@ -180,9 +180,10 @@ class XrayTemporalDataManager(VanillaDataManager, Generic[TDataset]):
         raise ValueError("No more eval images")
 
 class TimestampSampler:
-    def __init__(self, time_proposal_steps: int, max_images_per_timestamp: int) -> None:
+    def __init__(self, time_proposal_steps: int, max_images_per_timestamp: int, max_unique_timestamps: int = 5) -> None:
         self.time_proposal_steps = time_proposal_steps
         self.max_images_per_timestamp = max_images_per_timestamp
+        self.max_unique_timestamps = max_unique_timestamps
     
     def choose_indices(self, image_timestamps: Iterable, step: int) -> int:
         max_timestamp = max(image_timestamps)
@@ -197,6 +198,7 @@ class TimestampSampler:
         num_per_timestamp = {}
         for idx in indices:
             t = image_timestamps[idx]
+            if len(num_per_timestamp)>=self.max_unique_timestamps: break
             if t <= cutoff_timestamp and num_per_timestamp.get(t, 0) < self.max_images_per_timestamp:
                 indices_to_sample_from.append(idx)
                 num_per_timestamp[t] = num_per_timestamp.get(t, 0) + 1

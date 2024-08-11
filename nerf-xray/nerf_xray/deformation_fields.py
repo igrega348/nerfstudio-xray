@@ -374,7 +374,7 @@ class BSplineField3d(torch.nn.Module):
         A = self.get_A_matrix(x, y, z)
         if phi_x is None:
             phi_x = self.phi_x
-        u = A@self.phi_x.view(-1,3)
+        u = A@phi_x.view(-1,3)
         return u
 
     def mean_disp(self, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None):
@@ -445,7 +445,12 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
                 phi = self.weight_nn(t.view(-1,1)).view(*self.bspline_field.grid_size, 3)
             else:
                 phi = self.phi_x[:t+1].sum(dim=0)
-            displacement[mask] = self.bspline_field.vectorized_displacement(x0, x1, x2, phi_x=phi)
+            u = self.bspline_field.vectorized_displacement(x0, x1, x2, phi_x=phi)
+            u = self.bspline_field.matrix_vector_displacement(x0, x1, x2, phi_x=phi)
+            if u.dtype!=displacement.dtype:
+                displacement = displacement.to(u)
+                print('displacement dtype changed to', u.dtype)
+            displacement[mask] = u
         return positions + displacement
 
     def mean_disp(self) -> float:
