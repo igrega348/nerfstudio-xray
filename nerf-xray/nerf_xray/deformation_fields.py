@@ -432,6 +432,7 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
             self.weight_nn = NeuralPhiX(3*np.prod(num_control_points), 3, 16)
         self.bspline_field = BSplineField3d(support_outside=support_outside, support_range=support_range, num_control_points=num_control_points)
         self.register_buffer('support_range', torch.tensor(support_range))
+        self.warning_printed = False
 
     def forward(self, positions: Tensor, times: Tensor) -> Tensor:
         # positions, times of shape [ray, nsamples, 3]
@@ -445,11 +446,13 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
                 phi = self.weight_nn(t.view(-1,1)).view(*self.bspline_field.grid_size, 3)
             else:
                 phi = self.phi_x[:t+1].sum(dim=0)
-            u = self.bspline_field.vectorized_displacement(x0, x1, x2, phi_x=phi)
+            # u = self.bspline_field.vectorized_displacement(x0, x1, x2, phi_x=phi)
             u = self.bspline_field.matrix_vector_displacement(x0, x1, x2, phi_x=phi)
             if u.dtype!=displacement.dtype:
                 displacement = displacement.to(u)
-                print('displacement dtype changed to', u.dtype)
+                if not self.warning_printed:
+                    print('displacement dtype changed to', u.dtype)
+                    self.warning_printed = True
             displacement[mask] = u
         return positions + displacement
 
