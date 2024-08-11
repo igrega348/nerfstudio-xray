@@ -419,7 +419,8 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
             phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]]=None, 
             support_outside: bool = False, 
             support_range: Optional[List[Tuple[float,float]]]=None,
-            num_control_points: Optional[Tuple[int,int,int]]=None
+            num_control_points: Optional[Tuple[int,int,int]]=None,
+            weight_nn_width: int = 16
         ) -> None:
         super().__init__()
         if phi_x is not None:
@@ -429,7 +430,7 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
         else:
             assert num_control_points is not None
             self.phi_x = None
-            self.weight_nn = NeuralPhiX(3*np.prod(num_control_points), 3, 16)
+            self.weight_nn = NeuralPhiX(3*np.prod(num_control_points), 3, weight_nn_width)
         self.bspline_field = BSplineField3d(support_outside=support_outside, support_range=support_range, num_control_points=num_control_points)
         self.register_buffer('support_range', torch.tensor(support_range))
         self.warning_printed = False
