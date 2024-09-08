@@ -119,6 +119,7 @@ class TemplateNerfField(NerfactoField):
         # Make sure the tcnn gets inputs between 0 and 1.
         selector = ((positions > 0.0) & (positions < 1.0)).all(dim=-1)
         positions = positions * selector[..., None]
+        # positions = torch.clamp(positions, min=0, max=1)
         self._sample_locations = positions
         if not self._sample_locations.requires_grad:
             self._sample_locations.requires_grad = True
@@ -133,8 +134,6 @@ class TemplateNerfField(NerfactoField):
         # softplus, because it enables high post-activation (float32) density outputs
         # from smaller internal (float16) parameters.
         density = self.average_init_density * trunc_exp(density_before_activation.to(positions))
-        # try sigmoid activation
-        # density = self.average_init_density * torch.sigmoid(density_before_activation.to(positions))
         density = density * selector[..., None]
         return density, base_mlp_out
 

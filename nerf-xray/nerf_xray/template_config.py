@@ -58,7 +58,7 @@ nerf_xray = MethodSpecification(
             },
             "fields": {
                 "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=50000),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-3, max_steps=50000),
             },
             "flat_field": {
                 "optimizer": RAdamOptimizerConfig(lr=1e-4, eps=1e-15),

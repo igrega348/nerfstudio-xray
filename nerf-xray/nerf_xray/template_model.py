@@ -111,11 +111,16 @@ class TemplateModel(Model):
         )
 
         if self.config.deformation_field == "temporal_bspline":
-            self.deformation_field = BsplineTemporalDeformationField3d(support_range=[(-1,1),(-1,1),(-0.7,0.7)], num_control_points=(16,16,16), support_outside=True, weight_nn_width=32)
+            self.deformation_field = BsplineTemporalDeformationField3d(
+                support_range=[(-1,1),(-1,1),(-1.0,1.0)], 
+                num_control_points=(8,8,8), 
+                support_outside=True, 
+                weight_nn_width=32
+            )
         elif self.config.deformation_field == 'temporal_1d_bspline':
             self.deformation_field = BsplineTemporalDeformationField1d(support_range=(-1,1), num_control_points=4, support_outside=True)
         elif self.config.deformation_field == 'bspline':
-            self.deformation_field = BsplineDeformationField3d(phi_x=None, support_outside=True, support_range=[(-1,1),(-1,1),(-0.6,0.6)], num_control_points=(6,6,6))
+            self.deformation_field = BsplineDeformationField3d(phi_x=None, support_outside=True, support_range=[(-1,1),(-1,1),(-0.8,0.8)], num_control_points=(4,4,4))
         elif self.config.deformation_field == "mlp":
             self.deformation_field = MLPDeformationField(depth=3, width=16)
         elif self.config.deformation_field == "identity":
