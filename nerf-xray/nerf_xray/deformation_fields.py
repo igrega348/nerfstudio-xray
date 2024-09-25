@@ -1,9 +1,50 @@
-from typing import Callable, Dict, Iterable, Optional, Tuple, Union, List
+from typing import Callable, Dict, Iterable, Optional, Tuple, Union, List, Type
+from dataclasses import dataclass, field
+from abc import abstractmethod
 
 import numpy as np
 import torch
 from torch import Tensor
 
+from nerfstudio.configs.config_utils import to_immutable_dict
+from nerfstudio.configs.base_config import InstantiateConfig
+
+@dataclass
+class DeformationFieldConfig(InstantiateConfig):
+    """Configuration for deformation field instantiation"""
+
+    _target: Type = field(default_factory=lambda: IdentityDeformationField)
+    """target class to instantiate"""
+
+class DeformationField(torch.nn.Module):
+    """Deformation field abstract class"""
+
+    config: DeformationFieldConfig
+
+    @abstractmethod
+    def __init__(
+        self,
+        config: DeformationFieldConfig,
+        **kwargs,
+    ) -> None:
+        """Initialize the deformation field
+
+        Args:
+            config: configuration for the deformation field
+        """
+
+class IdentityDeformationField(torch.nn.Module):
+    def __init__(self, config: DeformationFieldConfig) -> None:
+        super().__init__()
+
+    def forward(self, x: Tensor, times: Optional[Tensor]) -> Tensor:
+        return x
+    
+    def mean_disp(self) -> float:
+        return 0.0
+    
+    def max_disp(self) -> float:
+        return 0.0
 
 class NeuralPhiX(torch.nn.Module):
     def __init__(self, num_control_points: int = 4, depth: int = 3, width: int = 10):
@@ -413,16 +454,39 @@ class BsplineDeformationField3d(torch.nn.Module):
     def max_disp(self) -> float:
         return self.bspline_field.max_disp()
     
+@dataclass
+class BsplineTemporalDeformationField3dConfig(DeformationFieldConfig):
+    """Configuration for deformation field instantiation"""
+
+    _target: Type = field(default_factory=lambda: BsplineTemporalDeformationField3d)
+    """target class to instantiate"""
+    phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None
+    """Tensor of control point weights"""
+    support_outside: bool = True
+    """Support outside the control points"""
+    support_range: Optional[List[Tuple[float,float]]] = None
+    """Support range for the deformation field"""
+    num_control_points: Optional[Tuple[int,int,int]] = None
+    """Number of control points in each dimension"""
+    weight_nn_width: int = 16
+    """Width of the neural network for the weights"""
+
 class BsplineTemporalDeformationField3d(torch.nn.Module):
+
+    config: BsplineTemporalDeformationField3dConfig
+
     def __init__(
             self, 
-            phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]]=None, 
-            support_outside: bool = False, 
-            support_range: Optional[List[Tuple[float,float]]]=None,
-            num_control_points: Optional[Tuple[int,int,int]]=None,
-            weight_nn_width: int = 16
+            config: BsplineTemporalDeformationField3dConfig,
         ) -> None:
         super().__init__()
+        self.config = config
+        phi_x = config.phi_x
+        support_outside = config.support_outside
+        support_range = config.support_range
+        num_control_points = config.num_control_points
+        weight_nn_width = config.weight_nn_width
+        
         if phi_x is not None:
             assert phi_x.ndim == 5 # [ntimes, nx, ny, nz, 3]
             num_control_points = phi_x.shape[1:4]
@@ -500,10 +564,6 @@ class BsplineTemporalDeformationField1d(torch.nn.Module):
         out = positions.clone()
         out[...,2] += self.bspline_field.displacement(x2, phi_x=phi).view(positions.shape[:-1])
         return out
-
-class IdentityDeformationField(torch.nn.Module):
-    def forward(self, x: Tensor, times: Optional[Tensor]) -> Tensor:
-        return x
     
 class AffineTemporalDeformationField(torch.nn.Module):
     def __init__(self, A: Union[Tensor, torch.nn.parameter.Parameter]) -> None:

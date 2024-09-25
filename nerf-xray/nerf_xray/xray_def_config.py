@@ -20,6 +20,7 @@ from nerf_xray.xray_temporal_datamanager import XrayTemporalDataManagerConfig
 from nerf_xray.template_dataparser import TemplateDataParserConfig
 from nerf_xray.template_model import TemplateModelConfig
 from nerf_xray.template_pipeline import TemplatePipelineConfig
+from nerf_xray.deformation_fields import BsplineTemporalDeformationField3dConfig
 
 nerf_def_xray = MethodSpecification(
     config=TrainerConfig(
@@ -30,29 +31,36 @@ nerf_def_xray = MethodSpecification(
         steps_per_save=5000,
         max_num_iterations=501,
         mixed_precision=True,
+        load_scheduler=False,
+        load_optimizer=False,
         pipeline=TemplatePipelineConfig(
             datamanager=XrayTemporalDataManagerConfig(
                 dataparser=TemplateDataParserConfig(
                     auto_scale_poses=False,
                     center_method='none',
-                    downscale_factors={'train': 1, 'val': 2, 'test': 2},
+                    downscale_factors={'train': 1, 'val': 4, 'test': 4},
                     eval_mode='filename+modulo',
                     includes_time=True,
                 ),
-                train_num_rays_per_batch=4096,
-                eval_num_rays_per_batch=4096,
+                train_num_rays_per_batch=1024,
+                eval_num_rays_per_batch=2048,
                 max_images_per_timestamp=3,
-                time_proposal_steps=200,
+                time_proposal_steps=500,
             ),
             model=TemplateModelConfig(
                 use_appearance_embedding=False,
                 background_color='white',
                 flat_field_value=0.02,
                 flat_field_trainable=False,
-                eval_num_rays_per_chunk=1 << 12,
+                eval_num_rays_per_chunk=1024,
+                num_nerf_samples_per_ray=512,
                 disable_scene_contraction=True,
                 train_density_field=False,
                 train_deformation_field=True,
+                deformation_field=BsplineTemporalDeformationField3dConfig(
+                    support_range=[(-1,1),(-1,1),(-1,1)],
+                    num_control_points=(4,4,4),
+                )
             ),
             volumetric_supervision=False,
         ),

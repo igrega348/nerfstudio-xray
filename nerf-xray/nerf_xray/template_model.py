@@ -42,7 +42,9 @@ from torch.nn import Parameter
 from .deformation_fields import (AffineTemporalDeformationField,
                                  BsplineTemporalDeformationField1d,
                                  BsplineTemporalDeformationField3d,
+                                 BsplineTemporalDeformationField3dConfig,
                                  BsplineDeformationField3d,
+                                 DeformationFieldConfig,
                                  IdentityDeformationField,
                                  MLPDeformationField)
 from .template_field import TemplateNerfField
@@ -62,8 +64,8 @@ class TemplateModelConfig(NerfactoModelConfig):
     """whether to train the density field"""
     train_deformation_field: bool = False
     """whether to train the deformation field"""
-    deformation_field: Literal["temporal_bspline", "temporal_1d_bspline", "bspline", "identity", "mlp"] = "identity"
-    """type of deformation field"""
+    deformation_field: DeformationFieldConfig = DeformationFieldConfig()
+    """deformation field"""
     flat_field_value: float = 0.0
     """initial value of flat field"""
     flat_field_trainable: bool = False
@@ -110,23 +112,7 @@ class TemplateModel(Model):
             implementation=self.config.implementation,
         )
 
-        if self.config.deformation_field == "temporal_bspline":
-            self.deformation_field = BsplineTemporalDeformationField3d(
-                support_range=[(-1,1),(-1,1),(-1.0,1.0)], 
-                num_control_points=(8,8,8), 
-                support_outside=True, 
-                weight_nn_width=32
-            )
-        elif self.config.deformation_field == 'temporal_1d_bspline':
-            self.deformation_field = BsplineTemporalDeformationField1d(support_range=(-1,1), num_control_points=4, support_outside=True)
-        elif self.config.deformation_field == 'bspline':
-            self.deformation_field = BsplineDeformationField3d(phi_x=None, support_outside=True, support_range=[(-1,1),(-1,1),(-0.8,0.8)], num_control_points=(4,4,4))
-        elif self.config.deformation_field == "mlp":
-            self.deformation_field = MLPDeformationField(depth=3, width=16)
-        elif self.config.deformation_field == "identity":
-            self.deformation_field = None #IdentityDeformationField()
-        else:
-            raise ValueError(f"Unknown deformation field type: {self.config.deformation_field}")
+        self.deformation_field = self.config.deformation_field.setup()
 
         # train density or deformation field
         if not self.config.train_density_field:
