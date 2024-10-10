@@ -428,19 +428,35 @@ class BSplineField3d(torch.nn.Module):
             phi_x = self.phi_x
         return phi_x.abs().max().item()
     
+@dataclass
+class BsplineDeformationField3dConfig(DeformationFieldConfig):
+    """Configuration for deformation field instantiation"""
+
+    _target: Type = field(default_factory=lambda: BsplineDeformationField3d)
+    """target class to instantiate"""
+    phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None
+    """Tensor of control point weights"""
+    support_outside: bool = True
+    """Support outside the control points"""
+    support_range: Optional[List[Tuple[float,float]]] = None
+    """Support range for the deformation field"""
+    num_control_points: Optional[Tuple[int,int,int]] = None
+    """Number of control points in each dimension"""
+
 class BsplineDeformationField3d(torch.nn.Module):
+
+    config: BsplineDeformationField3dConfig
+
     def __init__(
             self, 
-            phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None, 
-            support_outside: bool = False, 
-            support_range: Optional[List[Tuple[float,float]]] = None,
-            num_control_points: Optional[Tuple[int,int,int]] = None
+            config: BsplineDeformationField3dConfig,
         ) -> None:
         super().__init__()
-        if phi_x is None:
-            assert num_control_points is not None
-            phi_x = torch.nn.parameter.Parameter(0.001*torch.randn(*num_control_points, 3))
-        self.bspline_field = BSplineField3d(phi_x, support_outside, support_range, num_control_points)
+        self.config = config
+        if config.phi_x is None:
+            assert config.num_control_points is not None
+            phi_x = torch.nn.parameter.Parameter(0.001*torch.randn(*config.num_control_points, 3))
+        self.bspline_field = BSplineField3d(phi_x, config.support_outside, config.support_range, config.num_control_points)
     
     def forward(self, x: Tensor, times: Optional[Tensor] = None) -> Tensor:
         # x [ray, nsamples, 3]
