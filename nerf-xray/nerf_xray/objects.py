@@ -49,7 +49,7 @@ class Object:
             return ObjectCollection(Object.from_dict(o) for o in d["objects"])
         if d['type'] == 'unit_cell':
             return UnitCell(
-                struts=Object.from_dict(d['struts']), 
+                objects=Object.from_dict(d['objects']), 
                 min_lims=torch.tensor([d['xmin'], d['ymin'], d['zmin']]), 
                 max_lims=torch.tensor([d['xmax'], d['ymax'], d['zmax']])
             )
@@ -140,17 +140,17 @@ class Cylinder(Object):
         return rho
     
 class UnitCell(Object):
-    def __init__(self, struts: ObjectCollection, min_lims: torch.Tensor, max_lims: torch.Tensor):
-        self.struts = struts
+    def __init__(self, objects: ObjectCollection, min_lims: torch.Tensor, max_lims: torch.Tensor):
+        self.objects = objects
         self.min_lims = min_lims.reshape(1,3)
         self.max_lims = max_lims.reshape(1,3)
-        self.max_density = struts.max_density
+        self.max_density = objects.max_density
 
     def density(self, pos: torch.Tensor):
         assert pos.ndim == 2 and pos.size(1) == 3, f"Expected (N, 3) tensor, got {pos.size()}"
         rho = pos.new_zeros(pos.size(0))
         mask = torch.all(pos >= self.min_lims.to(pos), dim=-1) & torch.all(pos <= self.max_lims.to(pos), dim=-1)
-        rho[mask] = self.struts.density(pos[mask])
+        rho[mask] = self.objects.density(pos[mask])
         return rho
     
 class TessellatedObjColl(Object):
