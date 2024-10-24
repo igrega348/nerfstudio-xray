@@ -20,13 +20,14 @@ from nerf_xray.xray_temporal_datamanager import XrayTemporalDataManagerConfig
 from nerf_xray.template_dataparser import TemplateDataParserConfig
 from nerf_xray.template_model import TemplateModelConfig
 from nerf_xray.template_pipeline import TemplatePipelineConfig
-from nerf_xray.deformation_fields import BsplineTemporalDeformationField3dConfig
+from nerf_xray.deformation_fields import (BsplineTemporalDeformationField3dConfig,
+                                          BsplineDeformationField3dConfig)
 
 nerf_def_xray = MethodSpecification(
     config=TrainerConfig(
         method_name="nerf_def_xray", 
         steps_per_eval_batch=10,
-        steps_per_eval_all_images=10000,
+        steps_per_eval_all_images=1000000,
         steps_per_eval_image=100,
         steps_per_save=5000,
         max_num_iterations=501,
@@ -72,7 +73,7 @@ nerf_def_xray = MethodSpecification(
             },
             "fields": {
                 "optimizer": AdamWOptimizerConfig(lr=1e-3, eps=1e-15, weight_decay=1e-8),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=5000),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=3e-4, max_steps=10000),
             },
             # "fields": {
             #     "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),

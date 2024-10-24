@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Iterable, Optional, Tuple, Union, List, Type
+from typing import Callable, Dict, Iterable, Optional, Tuple, Union, List, Type, Literal
 from dataclasses import dataclass, field
 from abc import abstractmethod
 
@@ -253,7 +253,7 @@ class BSplineField3d(torch.nn.Module):
             support_max = np.array([r[1] for r in support_range])
             spacing = (support_max - support_min) / (grid_size - 3)
             origin = support_min - spacing
-        self.register_buffer('phi_x', phi_x)
+        self.register_parameter('phi_x', phi_x)
         self.register_buffer('grid_size', torch.tensor(grid_size))
         self.register_buffer('origin', torch.tensor(origin))
         self.register_buffer('spacing', torch.tensor(spacing))
@@ -442,6 +442,8 @@ class BsplineDeformationField3dConfig(DeformationFieldConfig):
     """Support range for the deformation field"""
     num_control_points: Optional[Tuple[int,int,int]] = None
     """Number of control points in each dimension"""
+    displacement_method: Literal['neighborhood','matrix'] = 'matrix'
+    """Whether to use neighborhood calculation of bsplines or assemble full matrix""" 
 
 class BsplineDeformationField3d(torch.nn.Module):
 
@@ -455,14 +457,32 @@ class BsplineDeformationField3d(torch.nn.Module):
         self.config = config
         if config.phi_x is None:
             assert config.num_control_points is not None
-            phi_x = torch.nn.parameter.Parameter(0.001*torch.randn(*config.num_control_points, 3))
+            phi_x = torch.nn.parameter.Parameter(0.01*torch.randn(*config.num_control_points, 3))
         self.bspline_field = BSplineField3d(phi_x, config.support_outside, config.support_range, config.num_control_points)
+        self.warning_printed = False
+        if config.displacement_method=='matrix':
+            self.disp_func = self.bspline_field.matrix_vector_displacement
+        elif config.displacement_method=='neighborhood':
+            self.disp_func = self.bspline_field.vectorized_displacement
+        else:
+            raise ValueError('Displacement method has to be matrix or neighborhood')
     
-    def forward(self, x: Tensor, times: Optional[Tensor] = None) -> Tensor:
-        # x [ray, nsamples, 3]
-        x0, x1, x2 = x[...,0].view(-1), x[...,1].view(-1), x[...,2].view(-1)
-        u = self.bspline_field.matrix_vector_displacement(x0, x1, x2).view(x.shape)
-        return x+u
+    def forward(self, positions: Tensor, times: Optional[Tensor] = None) -> Tensor:
+        # positions, times of shape [ray, nsamples, 3]
+        displacement = positions.new_zeros(positions.shape)
+        uq_times = torch.unique(times)
+        assert torch.all((uq_times==0)|(uq_times==1))
+        mask = (times == 1.0).squeeze()
+        x = positions[mask]
+        x0, x1, x2 = x[:,0], x[:,1], x[:,2]
+        u = self.disp_func(x0, x1, x2)
+        if u.dtype!=displacement.dtype:
+            displacement = displacement.to(u)
+            if not self.warning_printed:
+                print('displacement dtype changed to', u.dtype)
+                self.warning_printed = True
+        displacement[mask] = u
+        return positions + displacement
     
     def mean_disp(self) -> float:
         return self.bspline_field.mean_disp()
@@ -486,6 +506,8 @@ class BsplineTemporalDeformationField3dConfig(DeformationFieldConfig):
     """Number of control points in each dimension"""
     weight_nn_width: int = 16
     """Width of the neural network for the weights"""
+    displacement_method: Literal['neighborhood','matrix'] = 'matrix'
+    """Whether to use neighborhood calculation of bsplines or assemble full matrix""" 
 
 class BsplineTemporalDeformationField3d(torch.nn.Module):
 
@@ -514,6 +536,12 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
         self.bspline_field = BSplineField3d(support_outside=support_outside, support_range=support_range, num_control_points=num_control_points)
         self.register_buffer('support_range', torch.tensor(support_range))
         self.warning_printed = False
+        if config.displacement_method=='matrix':
+            self.disp_func = self.bspline_field.matrix_vector_displacement
+        elif config.displacement_method=='neighborhood':
+            self.disp_func = self.bspline_field.vectorized_displacement
+        else:
+            raise ValueError('Displacement method has to be matrix or neighborhood')
 
     def forward(self, positions: Tensor, times: Tensor) -> Tensor:
         # positions, times of shape [ray, nsamples, 3]
@@ -527,8 +555,7 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
                 phi = self.weight_nn(t.view(-1,1)).view(*self.bspline_field.grid_size, 3)
             else:
                 phi = self.phi_x[:t+1].sum(dim=0)
-            # u = self.bspline_field.vectorized_displacement(x0, x1, x2, phi_x=phi)
-            u = self.bspline_field.matrix_vector_displacement(x0, x1, x2, phi_x=phi)
+            u = self.disp_func(x0, x1, x2, phi_x=phi)
             if u.dtype!=displacement.dtype:
                 displacement = displacement.to(u)
                 if not self.warning_printed:

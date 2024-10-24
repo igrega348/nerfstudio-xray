@@ -24,7 +24,7 @@ nerf_xray = MethodSpecification(
     config=TrainerConfig(
         method_name="nerf_xray", 
         steps_per_eval_batch=10,
-        steps_per_eval_all_images=10000,
+        steps_per_eval_all_images=100000,
         steps_per_eval_image=100,
         steps_per_save=5000,
         max_num_iterations=1001,
@@ -43,7 +43,7 @@ nerf_xray = MethodSpecification(
             model=TemplateModelConfig(
                 use_appearance_embedding=False,
                 background_color='white',
-                flat_field_value=0.0,
+                flat_field_value=0.1,
                 flat_field_trainable=True,
                 eval_num_rays_per_chunk=1024,
                 num_nerf_samples_per_ray=512,
@@ -59,10 +59,10 @@ nerf_xray = MethodSpecification(
             },
             "fields": {
                 "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-3, max_steps=50000),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-3, max_steps=100000),
             },
             "flat_field": {
-                "optimizer": RAdamOptimizerConfig(lr=1e-4, eps=1e-15),
+                "optimizer": RAdamOptimizerConfig(lr=1e-3, eps=1e-15),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-6, max_steps=50000),
             },
             "camera_opt": {

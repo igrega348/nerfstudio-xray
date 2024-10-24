@@ -238,6 +238,9 @@ class TemplatePipeline(VanillaPipeline):
             'normed_correlation': normed_correlation
             }
 
+    def get_flat_field_penalty(self):
+        return -0.01*self.model.flat_field
+
     @profiler.time_function
     def get_train_loss_dict(self, step: int):
         """This function gets your training loss dict. This will be responsible for
@@ -251,6 +254,8 @@ class TemplatePipeline(VanillaPipeline):
         model_outputs = self._model(ray_bundle)  # train distributed data parallel model if world_size > 1
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
+
+        loss_dict['flat_field_loss'] = self.get_flat_field_penalty()
         
         if self.config.volumetric_supervision and step>self.config.volumetric_supervision_start_step:
             # provide supervision to visual training. Use cross-corelation loss
@@ -259,7 +264,7 @@ class TemplatePipeline(VanillaPipeline):
                 time = 0.0
                 density_loss = self.calculate_density_loss(sampling='random', time=time)
                 loss_dict[f'volumetric_loss_{time:.0f}'] = -self.config.volumetric_supervision_coefficient*density_loss['normed_correlation']
-                if self.datamanager.final_object is not None:
+                if hasattr(self.datamanager, 'final_object') and self.datamanager.final_object is not None:
                     time = 1.0
                     density_loss = self.calculate_density_loss(sampling='random', time=time)
                     loss_dict[f'volumetric_loss_{time:.0f}'] = -self.config.volumetric_supervision_coefficient*density_loss['normed_correlation']
