@@ -183,6 +183,8 @@ class BSplineField1d(torch.nn.Module):
         u = A@phi_x
         return u
 
+    def forward(self, x: torch.Tensor):
+        return self.matrix_vector_displacement(x)
 class BsplineDeformationField(torch.nn.Module):
     def __init__(self, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None, support_outside: bool = False, num_control_points: Optional[int] = None) -> None:
         super().__init__()

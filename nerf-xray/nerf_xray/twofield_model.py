@@ -313,7 +313,7 @@ class TwofieldModel(Model):
         ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
         field_f_outputs = self.field_f.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=self.deformation_field_f)
         field_b_outputs = self.field_b.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=self.deformation_field_b)
-        alphas = self.field_weighing(ray_samples.times.view(-1)).view(ray_samples.times.shape)
+        alphas = self.field_weighing(ray_samples.times.reshape(-1)).view(ray_samples.times.shape)
         alphas = torch.nn.functional.sigmoid(alphas)
         field_outputs = {}
         for key in field_f_outputs:
@@ -377,9 +377,12 @@ class TwofieldModel(Model):
             metrics_dict["distortion"] = distortion_loss(outputs["weights_list"], outputs["ray_samples_list"])
 
         self.camera_optimizer.get_metrics_dict(metrics_dict)
-        if self.deformation_field is not None:
-            metrics_dict["mean_disp"] = self.deformation_field.mean_disp()
-            metrics_dict['max_disp'] = self.deformation_field.max_disp()
+        if self.deformation_field_f is not None:
+            metrics_dict["mean_disp_f"] = self.deformation_field_f.mean_disp()
+            metrics_dict['max_disp_f'] = self.deformation_field_f.max_disp()
+        if self.deformation_field_b is not None:
+            metrics_dict["mean_disp_b"] = self.deformation_field_b.mean_disp()
+            metrics_dict['max_disp_b'] = self.deformation_field_b.max_disp()
         return metrics_dict
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
