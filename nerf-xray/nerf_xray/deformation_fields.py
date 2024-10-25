@@ -91,24 +91,14 @@ class MLPDeformationField(torch.nn.Module):
 
 class BSplineField1d(torch.nn.Module):
     """1D B-spline field used for prototyping. Differentiable field now
-    """
-    @staticmethod
-    def bspline(u, i):
-        if i == 0:
-            return (1 - u)**3 / 6
-        elif i == 1:
-            return (3*u**3 - 6*u**2 + 4) / 6
-        elif i == 2:
-            return (-3*u**3 + 3*u**2 + 3*u + 1) / 6
-        elif i == 3:
-            return u**3 / 6
-        
+    """   
     def __init__(
             self, 
             phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None, 
             support_outside: bool = False, 
             support_range: Optional[Tuple[float,float]] = None,
-            num_control_points: Optional[int] = None
+            num_control_points: Optional[int] = None,
+            A_sparse: bool = False
         ) -> None:
         super().__init__()
         assert phi_x is not None or num_control_points is not None
@@ -116,16 +106,21 @@ class BSplineField1d(torch.nn.Module):
             assert phi_x.ndim == 1
             assert phi_x.shape[0] > 3
             num_control_points = phi_x.shape[0]
-        self.phi_x = phi_x
         if support_range is None:
             # provide support over -1 to 1
-            self.dx = 2/(num_control_points-3)
-            self.origin = -1 - self.dx
+            dx = 2/(num_control_points-3)
+            origin = -1 - dx
         else:
             support_min, support_max = support_range
-            self.dx = (support_max - support_min) / (num_control_points-3)
-            self.origin = support_min - self.dx
-        self.support_outside = support_outside
+            dx = (support_max - support_min) / (num_control_points-3)
+            origin = support_min - dx
+
+        self.register_parameter('phi_x', phi_x)
+        self.register_buffer('num_control_points', torch.tensor(num_control_points))
+        self.register_buffer('origin', torch.tensor(origin))
+        self.register_buffer('dx', torch.tensor(dx))
+        self.register_buffer('support_outside', torch.tensor(support_outside))
+        self.register_buffer('A_sparse', torch.tensor(A_sparse))
 
     def displacement(self, _t: Tensor, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None) -> Tensor:
         # # support on -1 to 1
@@ -149,14 +144,13 @@ class BSplineField1d(torch.nn.Module):
             inds_loc = indices[valid] + i
             if self.support_outside:
                 inds_loc = torch.clamp(inds_loc, 0, len(phi_x)-1) # support outside the domain
-            x[valid] += self.bspline(t[valid]/self.dx - indices[valid], i) * phi_x[inds_loc]
+            x[valid] += bspline(t[valid]/self.dx - indices[valid], i) * phi_x[inds_loc]
 
         return x
     
     def get_A_matrix(
         self,
         x: torch.Tensor,
-        sparse: bool = False
     ) -> torch.Tensor:
         assert x.ndim == 1
         dx = self.dx
@@ -169,9 +163,9 @@ class BSplineField1d(torch.nn.Module):
         out_of_support = (ind_x < 0) | (ind_x >= nx)
         out_of_support = out_of_support.any(dim=1)
         ind_x = ind_x.clamp(0, nx-1)
-        weights_x = torch.stack([self.bspline(u, i) for i in range(4)], dim=1)
+        weights_x = torch.stack([bspline(u, i) for i in range(4)], dim=1)
         if not self.support_outside: weights_x[out_of_support] = torch.nan
-        if sparse:
+        if self.A_sparse:
             idx0 = torch.repeat_interleave(torch.arange(npoints, device=x.device), 4)
             flat_index = ind_x.view(-1)
             weights_x = weights_x.view(-1)
@@ -181,6 +175,13 @@ class BSplineField1d(torch.nn.Module):
             A = x.new_zeros(npoints, nx)
             A = A.scatter_add_(dim=1, index=ind_x, src=weights_x)
         return A
+    
+    def matrix_vector_displacement(self, x: torch.Tensor, phi_x: Optional[torch.Tensor] = None) -> torch.Tensor:
+        A = self.get_A_matrix(x)
+        if phi_x is None:
+            phi_x = self.phi_x
+        u = A@phi_x
+        return u
 
 class BsplineDeformationField(torch.nn.Module):
     def __init__(self, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None, support_outside: bool = False, num_control_points: Optional[int] = None) -> None:
