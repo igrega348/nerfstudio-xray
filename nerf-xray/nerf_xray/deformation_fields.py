@@ -185,6 +185,7 @@ class BSplineField1d(torch.nn.Module):
 
     def forward(self, x: torch.Tensor):
         return self.matrix_vector_displacement(x)
+        
 class BsplineDeformationField(torch.nn.Module):
     def __init__(self, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None, support_outside: bool = False, num_control_points: Optional[int] = None) -> None:
         super().__init__()
@@ -552,7 +553,10 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
         uq_times = torch.unique(times)
         for t in uq_times:
             mask = (times == t).squeeze()
-            x = positions[mask]
+            if mask.numel()==1:
+                x = positions
+            else:
+                x = positions[mask]
             x0, x1, x2 = x[:,0], x[:,1], x[:,2]
             if self.phi_x is None:
                 phi = self.weight_nn(t.view(-1,1)).view(*self.bspline_field.grid_size, 3)

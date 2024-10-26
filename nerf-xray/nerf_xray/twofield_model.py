@@ -4,7 +4,7 @@ Template Model File
 Currently this subclasses the Nerfacto model. Consider subclassing from the base Model.
 """
 from dataclasses import dataclass, field
-from typing import Dict, List, Literal, Tuple, Type, Union
+from typing import Dict, List, Literal, Tuple, Type, Union, Optional
 
 import numpy as np
 import torch
@@ -135,7 +135,7 @@ class TwofieldModel(Model):
         self.deformation_field_b = self.config.deformation_field_b.setup()
 
         self.field_weighing = BSplineField1d(
-            torch.nn.parameter.Parameter(torch.linspace(0,1,10)), 
+            torch.nn.parameter.Parameter(torch.linspace(-1,1,10)), 
             support_outside=True, 
             support_range=(0,1)
         )
@@ -251,6 +251,7 @@ class TwofieldModel(Model):
         param_groups["fields"].extend(list(self.field_b.parameters()))
         param_groups['fields'].extend(list(self.deformation_field_f.parameters()))
         param_groups['fields'].extend(list(self.deformation_field_b.parameters()))
+        param_groups['fields'].extend(list(self.field_weighing.parameters()))
         # trainable background color
         if self.config.flat_field_trainable:
             param_groups["flat_field"] = [self.flat_field]
@@ -305,6 +306,39 @@ class TwofieldModel(Model):
 
         return self.get_outputs(ray_bundle)
 
+    def get_mixing_divergence(self):
+        times = torch.linspace(0, 1, 20, device=self.device)
+        alphas = self.field_weighing(times)
+        alphas = torch.nn.functional.sigmoid(alphas)
+        div = torch.nn.functional.mse_loss(times, alphas)
+        return div
+
+    def mix_two_fields(self, field_f_outputs: Union[Dict, Tensor], field_b_outputs: Union[Dict, Tensor], times: Tensor):
+        alphas = self.field_weighing(times.reshape(-1)).view(times.shape)
+        alphas = torch.nn.functional.sigmoid(alphas)
+        # alphas = float(torch.rand(1)<0.5) # sample one or the other
+        if isinstance(field_f_outputs, Tensor):
+            field_outputs = (1-alphas) * field_f_outputs + alphas * field_b_outputs
+        elif isinstance(field_f_outputs, dict):
+            field_outputs = {}
+            for key in field_f_outputs:
+                field_outputs[key] = (1-alphas) * field_f_outputs[key] + alphas * field_b_outputs[key]
+        return field_outputs
+
+    def get_density_from_pos(
+        self, positions: Tensor, time: Optional[Union[Tensor, float]] = None
+    ) -> Tensor:
+        if time is None:
+            time = positions.new_zeros(1)
+        elif isinstance(time, float):
+            time = positions.new_ones(1)*time
+        else:
+            raise ValueError(f'`time` of type {type(time)}')
+        density_f = self.field_f.get_density_from_pos(positions, deformation_field=self.deformation_field_f, time=time).squeeze()
+        density_b = self.field_b.get_density_from_pos(positions, deformation_field=self.deformation_field_b, time=time).squeeze()
+        density = self.mix_two_fields(density_f, density_b, time)
+        return density
+
     def get_outputs(self, ray_bundle: RayBundle):
         # apply the camera optimizer pose tweaks
         if self.training:
@@ -313,11 +347,7 @@ class TwofieldModel(Model):
         ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
         field_f_outputs = self.field_f.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=self.deformation_field_f)
         field_b_outputs = self.field_b.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=self.deformation_field_b)
-        alphas = self.field_weighing(ray_samples.times.reshape(-1)).view(ray_samples.times.shape)
-        alphas = torch.nn.functional.sigmoid(alphas)
-        field_outputs = {}
-        for key in field_f_outputs:
-            field_outputs[key] = (1-alphas) * field_f_outputs[key] + alphas * field_b_outputs[key]
+        field_outputs = self.mix_two_fields(field_f_outputs, field_b_outputs, ray_samples.times)
         if self.config.use_gradient_scaling:
             field_outputs = scale_gradients_by_distance_squared(field_outputs, ray_samples)
 

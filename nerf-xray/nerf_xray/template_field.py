@@ -138,8 +138,12 @@ class TemplateNerfField(NerfactoField):
         return density, base_mlp_out
 
     def get_density_from_pos(
-        self, positions: Tensor, deformation_field: Optional[torch.nn.Module] = None, time: float = 0.0
+        self, positions: Tensor, deformation_field: Optional[torch.nn.Module] = None, time: Optional[Union[Tensor, float]] = 0.0
     ) -> Tensor:
+        if isinstance(time, Tensor):
+            pass
+        else:
+            time = torch.tensor([time], device=positions.device)
         ray_samples = RaySamples(
             frustums=Frustums(
                 origins=positions,
@@ -148,7 +152,7 @@ class TemplateNerfField(NerfactoField):
                 ends=torch.zeros_like(positions[..., :1]),
                 pixel_area=torch.ones_like(positions[..., :1]),
             ),
-            times=torch.tensor([time], device=positions.device),
+            times=time,
         )
         density, _ = self.get_density(ray_samples, deformation_field=deformation_field)
         return density

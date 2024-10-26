@@ -38,10 +38,10 @@ from nerf_xray.template_model import TemplateModel, TemplateModelConfig
 
 
 @dataclass
-class TemplatePipelineConfig(VanillaPipelineConfig):
+class TwofieldPipelineConfig(VanillaPipelineConfig):
     """Configuration for pipeline instantiation"""
 
-    _target: Type = field(default_factory=lambda: TemplatePipeline)
+    _target: Type = field(default_factory=lambda: TwofieldPipeline)
     """target class to instantiate"""
     datamanager: DataManagerConfig = XrayDataManagerConfig()
     """specifies the datamanager config"""
@@ -53,11 +53,15 @@ class TemplatePipelineConfig(VanillaPipelineConfig):
     """start providing volumetric supervision at this step"""
     volumetric_supervision_coefficient: float = 0.005
     """coefficient for the volumetric supervision loss"""
+    field_closure_start_step: int = -1
+    """start providing displacement field closure at this step"""
+    field_closure_coefficient: float = 0.01
+    """multiplicative factor for field closure"""
     load_density_ckpt: Optional[Path] = None
     """specifies the path to the density field to load"""
 
 
-class TemplatePipeline(VanillaPipeline):
+class TwofieldPipeline(VanillaPipeline):
     """Template Pipeline
 
     Args:
@@ -66,7 +70,7 @@ class TemplatePipeline(VanillaPipeline):
 
     def __init__(
         self,
-        config: TemplatePipelineConfig,
+        config: TwofieldPipelineConfig,
         device: str,
         test_mode: Literal["test", "val", "inference"] = "val",
         world_size: int = 1,
@@ -91,31 +95,12 @@ class TemplatePipeline(VanillaPipeline):
         )
         self.model.to(device)
 
-        if config.load_density_ckpt is not None:
-            self.load_density_field(config.load_density_ckpt)
-
         self.world_size = world_size
         if world_size > 1:
             self._model = typing.cast(
                 TemplateModel, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True)
             )
             dist.barrier(device_ids=[local_rank])
-
-    def load_density_field(self, ckpt_path: Path) -> None:
-        """Load the checkpoint from the given path
-
-        Args:
-            ckpt_path: path to the checkpoint
-        """
-        assert ckpt_path.exists(), f"Checkpoint {ckpt_path} does not exist"
-        loaded_state = torch.load(ckpt_path, map_location="cpu")
-        loaded_state = loaded_state['pipeline']
-        state = {
-            (key[len("module.") :] if key.startswith("module.") else key): value for key, value in loaded_state.items()
-        }
-        state = {key: value for key, value in state.items() if 'model.field' in key}
-        self.load_state_dict(state)
-        CONSOLE.print(f"Done loading density field from checkpoint from {ckpt_path}")
 
     @profiler.time_function
     def get_eval_loss_dict(self, step: int) -> Tuple[Any, Dict[str, Any], Dict[str, Any]]:
@@ -134,7 +119,11 @@ class TemplatePipeline(VanillaPipeline):
             {'flat_field': self.model.flat_field.data.item()}
         )
         if self.datamanager.object is not None:
-            metrics_dict.update(self.calculate_density_loss())
+            metrics_dict.update({k+'_0':v for k,v in self.calculate_density_loss(time=0.0).items()})
+        if hasattr(self.datamanager, 'final_object') and self.datamanager.final_object is not None:
+            metrics_dict.update({k+'_1':v for k,v in self.calculate_density_loss(time=1.0).items()})
+        metrics_dict['mixing_divergence'] = self.model.get_mixing_divergence()
+        metrics_dict.update(self.get_def_field_closure_loss())
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         self.train()
         return model_outputs, loss_dict, metrics_dict
@@ -208,15 +197,10 @@ class TemplatePipeline(VanillaPipeline):
             pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
         elif sampling=='random':
             pos = 2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0
-        if time is not None:
-            assert time in [0.0, 1.0], "Time must be 0.0 or 1.0"
-            object = self.datamanager.object if time==0.0 else self.datamanager.final_object
-            pred_density = self._model.field.get_density_from_pos(pos, deformation_field=self._model.deformation_field, time=time).squeeze()
-        else:
-            object = self.datamanager.object
-            pred_density = self._model.field.get_density_from_pos(pos).squeeze()
-
-        density = object.density(pos).squeeze() # density between -1 and 1
+        assert time in [0.0, 1.0], "Time must be 0.0 or 1.0"
+        pred_density = self.model.get_density_from_pos(pos, time=time).squeeze()
+        obj = self.datamanager.object if time==0.0 else self.datamanager.final_object
+        density = obj.density(pos).squeeze() # density between -1 and 1
         
         x = density
         y = pred_density
@@ -241,6 +225,28 @@ class TemplatePipeline(VanillaPipeline):
     def get_flat_field_penalty(self):
         return -0.01*self.model.flat_field
 
+    def get_def_field_closure_loss(self) -> Dict[str, Tensor]:
+        lim = 0.7
+        out = {}
+        t0 = torch.zeros(1, device=self.device)
+        t1 = torch.ones(1, device=self.device)
+        ti = torch.rand(1, device=self.device)
+        # deformation field accepts positions -1 to 1
+        xi = lim * (2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0)
+        X = self.model.deformation_field_f(xi, times=ti)
+        x1 = self.model.deformation_field_b(xi, times=ti)
+        X_bar = self.model.deformation_field_f(x1, times=t1)        
+        out['field_closure_f'] = torch.nn.functional.mse_loss(X, X_bar)
+
+        ti = torch.rand(1, device=self.device)
+        xi = lim * (2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0)
+        X = self.model.deformation_field_f(xi, times=ti)
+        x = self.model.deformation_field_b(X, times=t0)
+        x_bar = self.model.deformation_field_b(xi, times=ti)
+        out['field_closure_b'] = torch.nn.functional.mse_loss(x, x_bar)
+
+        return out
+
     @profiler.time_function
     def get_train_loss_dict(self, step: int):
         """This function gets your training loss dict. This will be responsible for
@@ -256,65 +262,22 @@ class TemplatePipeline(VanillaPipeline):
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
 
         loss_dict['flat_field_loss'] = self.get_flat_field_penalty()
+
+        if self.config.field_closure_start_step>0 and step>self.config.field_closure_start_step:
+            loss_dict.update({k:v*self.config.field_closure_coefficient for k,v in self.get_def_field_closure_loss().items()})
         
         if self.config.volumetric_supervision and step>self.config.volumetric_supervision_start_step:
             # provide supervision to visual training. Use cross-corelation loss
             assert self.datamanager.object is not None
-            if self.model.deformation_field is not None:
-                time = 0.0
+            time = 0.0
+            density_loss = self.calculate_density_loss(sampling='random', time=time)
+            loss_dict[f'volumetric_loss_{time:.0f}'] = -self.config.volumetric_supervision_coefficient*density_loss['normed_correlation']
+            if hasattr(self.datamanager, 'final_object') and self.datamanager.final_object is not None:
+                time = 1.0
                 density_loss = self.calculate_density_loss(sampling='random', time=time)
                 loss_dict[f'volumetric_loss_{time:.0f}'] = -self.config.volumetric_supervision_coefficient*density_loss['normed_correlation']
-                if hasattr(self.datamanager, 'final_object') and self.datamanager.final_object is not None:
-                    time = 1.0
-                    density_loss = self.calculate_density_loss(sampling='random', time=time)
-                    loss_dict[f'volumetric_loss_{time:.0f}'] = -self.config.volumetric_supervision_coefficient*density_loss['normed_correlation']
-            else:
-                density_loss = self.calculate_density_loss(sampling='random')
-                loss_dict['volumetric_loss'] = -self.config.volumetric_supervision_coefficient*density_loss['normed_correlation']
 
         return model_outputs, loss_dict, metrics_dict
-    
-    def eval_along_lines(
-        self, 
-        b: Sequence[float], 
-        c: Sequence[float], 
-        line='x', 
-        fn=None, 
-        engine='matplotlib',
-        time=0.0
-    ):
-        a = torch.linspace(0, 1, 500, device=self.device)
-        bc = torch.ones_like(a)
-        pred_densities = []
-        true_densities = []
-        with torch.no_grad():
-            for _b, _c in zip(b,c):
-                if line == 'x':
-                    pos = torch.stack([a, bc*_b, bc*_c], dim=-1)
-                elif line == 'y':
-                    pos = torch.stack([bc*_b, a, bc*_c], dim=-1)
-                elif line == 'z':
-                    pos = torch.stack([bc*_b, bc*_c, a], dim=-1)
-                if self.model.deformation_field is not None:
-                    pred_density = self._model.field.get_density_from_pos(pos, deformation_field=self._model.deformation_field, time=time)
-                else:
-                    pred_density = self._model.field.get_density_from_pos(pos)
-                pred_densities.append(pred_density.cpu().numpy())
-                true_density = self.datamanager.object.t_density(pos)
-                true_densities.append(true_density.cpu().numpy())
-        a = a.cpu().numpy()
-        if engine=='matplotlib':
-            plt.figure(figsize=(6,6))
-            for i in range(len(b)):
-                label = f'y={b[i]}, z={c[i]}' if line == 'x' else f'x={b[i]}, z={c[i]}' if line == 'y' else f'x={b[i]}, y={c[i]}'
-                plt.plot(a, pred_densities[i], label=label, ls='-', color=f'C{i}', alpha=0.7)
-                plt.plot(a, true_densities[i], ls='--', color=f'C{i}', alpha=0.7)
-            plt.legend()
-            if fn is not None:
-                plt.savefig(fn)
-            plt.close()
-        else:
-            raise NotImplementedError("Only matplotlib supported for now")
     
     def eval_along_plane(
         self, 
@@ -339,10 +302,7 @@ class TemplatePipeline(VanillaPipeline):
             pos = torch.stack([A, C, B], dim=-1)
         if target in ['field', 'both']:
             with torch.no_grad():
-                if self.model.deformation_field is not None:
-                    pred_density = self._model.field.get_density_from_pos(pos, deformation_field=self._model.deformation_field, time=time).squeeze()
-                else:
-                    pred_density = self._model.field.get_density_from_pos(pos).squeeze()
+                pred_density = self._model.field.get_density_from_pos(pos, time=time).squeeze()
                 pred_density = pred_density.cpu().numpy() / rhomax
         if target in ['datamanager', 'both']:
             pos_shape = pos.shape

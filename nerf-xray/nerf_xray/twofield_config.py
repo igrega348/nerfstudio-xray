@@ -19,7 +19,7 @@ from nerfstudio.plugins.types import MethodSpecification
 from nerf_xray.xray_temporal_datamanager import XrayTemporalDataManagerConfig
 from nerf_xray.template_dataparser import TemplateDataParserConfig
 from nerf_xray.twofield_model import TwofieldModelConfig
-from nerf_xray.template_pipeline import TemplatePipelineConfig
+from nerf_xray.twofield_pipeline import TwofieldPipelineConfig
 from nerf_xray.deformation_fields import (BsplineTemporalDeformationField3dConfig,
                                           BsplineDeformationField3dConfig)
 
@@ -34,7 +34,7 @@ xray_twofield = MethodSpecification(
         mixed_precision=True,
         load_scheduler=False,
         load_optimizer=False,
-        pipeline=TemplatePipelineConfig(
+        pipeline=TwofieldPipelineConfig(
             datamanager=XrayTemporalDataManagerConfig(
                 dataparser=TemplateDataParserConfig(
                     auto_scale_poses=False,
