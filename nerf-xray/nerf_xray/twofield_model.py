@@ -313,6 +313,11 @@ class TwofieldModel(Model):
         div = torch.nn.functional.mse_loss(times, alphas)
         return div
 
+    def get_mixing_coefficient(self, times: Tensor):
+        alphas = self.field_weighing(times.reshape(-1)).view(times.shape)
+        alphas = torch.nn.functional.sigmoid(alphas)
+        return alphas
+
     def mix_two_fields(self, field_f_outputs: Union[Dict, Tensor], field_b_outputs: Union[Dict, Tensor], times: Tensor):
         alphas = self.field_weighing(times.reshape(-1)).view(times.shape)
         alphas = torch.nn.functional.sigmoid(alphas)
@@ -338,6 +343,19 @@ class TwofieldModel(Model):
         density_b = self.field_b.get_density_from_pos(positions, deformation_field=self.deformation_field_b, time=time).squeeze()
         density = self.mix_two_fields(density_f, density_b, time)
         return density
+
+    def get_density_difference(
+        self, positions: Tensor, time: Optional[Union[Tensor, float]] = None
+    ) -> Tensor:
+        if time is None:
+            time = positions.new_zeros(1)
+        elif isinstance(time, float):
+            time = positions.new_ones(1)*time
+        else:
+            raise ValueError(f'`time` of type {type(time)}')
+        density_f = self.field_f.get_density_from_pos(positions, deformation_field=self.deformation_field_f, time=time).squeeze()
+        density_b = self.field_b.get_density_from_pos(positions, deformation_field=self.deformation_field_b, time=time).squeeze()
+        return density_f - density_b
 
     def get_outputs(self, ray_bundle: RayBundle):
         # apply the camera optimizer pose tweaks

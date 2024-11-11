@@ -57,6 +57,10 @@ class TwofieldPipelineConfig(VanillaPipelineConfig):
     """start providing displacement field closure at this step"""
     field_closure_coefficient: float = 0.01
     """multiplicative factor for field closure"""
+    density_mismatch_start_step: int = -1
+    """start providing displacement field closure at this step"""
+    density_mismatch_coefficient: float = 1e-3
+    """multiplicative factor for field closure"""
     load_density_ckpt: Optional[Path] = None
     """specifies the path to the density field to load"""
 
@@ -124,6 +128,8 @@ class TwofieldPipeline(VanillaPipeline):
             metrics_dict.update({k+'_1':v for k,v in self.calculate_density_loss(time=1.0).items()})
         metrics_dict['mixing_divergence'] = self.model.get_mixing_divergence()
         metrics_dict.update(self.get_def_field_closure_loss())
+        metrics_dict.update({'mismatch_penalty':self.get_fields_mismatch_penalty()})
+
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         self.train()
         return model_outputs, loss_dict, metrics_dict
@@ -247,6 +253,23 @@ class TwofieldPipeline(VanillaPipeline):
 
         return out
 
+    def get_fields_mismatch_penalty(self):
+        # sample time
+        t = torch.rand(20, device=self.device) # 0 to 1
+        alphas = self.model.get_mixing_coefficient(t)
+        cost = alphas * (1-alphas)
+        select = cost>0.2
+        times = t[select]
+        diffs = []
+        for t in times:
+            pos = (2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0) * 0.7 # +0.7 to -0.7
+            diffs.append(self.model.get_density_difference(pos, t.item()).pow(2).mean().view(1))
+        if len(diffs)>0:
+            loss = torch.cat(diffs).sum()
+        else:
+            loss = t.new_zeros(1)
+        return loss
+
     @profiler.time_function
     def get_train_loss_dict(self, step: int):
         """This function gets your training loss dict. This will be responsible for
@@ -263,8 +286,11 @@ class TwofieldPipeline(VanillaPipeline):
 
         loss_dict['flat_field_loss'] = self.get_flat_field_penalty()
 
-        if self.config.field_closure_start_step>0 and step>self.config.field_closure_start_step:
+        if self.config.field_closure_start_step>=0 and step>self.config.field_closure_start_step:
             loss_dict.update({k:v*self.config.field_closure_coefficient for k,v in self.get_def_field_closure_loss().items()})
+        if self.config.density_mismatch_start_step>=0 and step>self.config.density_mismatch_start_step:
+            loss_dict.update({'mismatch_penalty':self.config.density_mismatch_coefficient*self.get_fields_mismatch_penalty()})
+        
         
         if self.config.volumetric_supervision and step>self.config.volumetric_supervision_start_step:
             # provide supervision to visual training. Use cross-corelation loss
@@ -302,7 +328,7 @@ class TwofieldPipeline(VanillaPipeline):
             pos = torch.stack([A, C, B], dim=-1)
         if target in ['field', 'both']:
             with torch.no_grad():
-                pred_density = self._model.field.get_density_from_pos(pos, time=time).squeeze()
+                pred_density = self._model.get_density_from_pos(pos, time=time).squeeze()
                 pred_density = pred_density.cpu().numpy() / rhomax
         if target in ['datamanager', 'both']:
             pos_shape = pos.shape

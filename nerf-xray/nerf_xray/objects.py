@@ -40,11 +40,11 @@ class Object:
     @staticmethod
     def from_dict(d: dict) -> "Object":
         if d["type"] == "sphere":
-            return Sphere(torch.tensor(d["center"]), d["radius"], d["rho"])
+            return Sphere(torch.tensor(d["center"]), d["radius"], d.get("rho", 1.0))
         if d["type"] == "cube":
-            return Cube(torch.tensor(d["center"]), d["side"], d["rho"])
+            return Cube(torch.tensor(d["center"]), d["side"], d.get("rho", 1.0))
         if d["type"] == "cylinder":
-            return Cylinder(torch.tensor(d["p0"]), torch.tensor(d["p1"]), d["radius"], d["rho"])
+            return Cylinder(torch.tensor(d["p0"]), torch.tensor(d["p1"]), d["radius"], d.get("rho", 1.0))
         if d["type"] == "object_collection":
             return ObjectCollection(Object.from_dict(o) for o in d["objects"])
         if d['type'] == 'unit_cell':
@@ -60,14 +60,14 @@ class Object:
                 max_lims=torch.tensor([d['xmax'], d['ymax'], d['zmax']])
             )
         if d['type'] == 'box':
-            return Box(d['center'], d['sides'], d['rho'])
+            return Box(d['center'], d['sides'], d.get("rho", 1.0))
         if d['type'] == 'parallelepiped':
             return Parallelepiped(
                 torch.tensor(d['origin']),
                 torch.tensor(d['v1']),
                 torch.tensor(d['v2']),
                 torch.tensor(d['v3']),
-                d['rho']
+                d.get("rho", 1.0)
             )
         raise ValueError(f"Unknown object type: {d['type']}")
 
