@@ -582,6 +582,70 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
         device = next(self.parameters()).device
         t = torch.rand(100,1, device=device)
         return self.weight_nn(t).abs().max().item()
+    
+@dataclass
+class BsplineTemporalVelocityField3dConfig(BsplineTemporalDeformationField3dConfig):
+    _target: Type = field(default_factory=lambda: BsplineTemporalVelocityField3d)
+    """target class to instantiate"""
+
+class BsplineTemporalVelocityField3d(BsplineTemporalDeformationField3d):
+    def forward(self, positions, times):
+        # positions, times of shape [ray, nsamples, 3]
+        displacement = positions.new_zeros(positions.shape)
+        uq_times = torch.unique(times)
+        for t in uq_times:
+            mask = (times == t).squeeze()
+            if mask.numel()==1:
+                x = positions
+            else:
+                x = positions[mask]
+            x0, x1, x2 = x[:,0], x[:,1], x[:,2]
+            if self.phi_x is None:
+                phi = self.weight_nn(t.view(-1,1)).view(*self.bspline_field.grid_size, 3)
+            else:
+                phi = self.phi_x[:t+1].sum(dim=0)
+            u = self.disp_func(x0, x1, x2, phi_x=phi)
+            if u.dtype!=displacement.dtype:
+                displacement = displacement.to(u)
+                if not self.warning_printed:
+                    print('displacement dtype changed to', u.dtype)
+                    self.warning_printed = True
+            displacement[mask] = u
+        return displacement
+    
+@dataclass
+class BsplineTemporalIntegratedVelocityField3dConfig(BsplineTemporalDeformationField3dConfig):
+    _target: Type = field(default_factory=lambda: BsplineTemporalIntegratedVelocityField3d)
+    """target class to instantiate"""
+
+class BsplineTemporalIntegratedVelocityField3d(BsplineTemporalDeformationField3d):
+    def forward(self, positions, times, final_time):
+        # positions, times of shape [ray, nsamples, 3]
+        new_pos = positions.new_zeros(positions.shape)
+        uq_times = torch.unique(times)
+        for t in uq_times:
+            mask = (times == t).squeeze()
+            if mask.numel()==1:
+                x = positions.clone()
+            else:
+                x = positions[mask].clone()
+            x0, x1, x2 = x[:,0], x[:,1], x[:,2]
+            assert self.phi_x is None
+            num_steps = int(np.abs(t-final_time)//0.05)
+            _times = torch.linspace(t, final_time, num_steps)
+            for it, _t in enumerate(_times[:-1]):
+                dt = _times[it+1] - _t
+                phi = self.weight_nn(t.view(-1,1)).view(*self.bspline_field.grid_size, 3)
+                u = self.disp_func(x0, x1, x2, phi_x=phi)
+                x0, x1, x2 = x0 + u[:,0]*dt, x1 + u[:,1]*dt, x2 + u[:,2]*dt
+                
+            if x0.dtype!=new_pos.dtype:
+                new_pos = new_pos.to(u)
+                if not self.warning_printed:
+                    print('displacement dtype changed to', u.dtype)
+                    self.warning_printed = True
+            new_pos[mask] = torch.stack([x0, x1, x2], dim=-1)
+        return new_pos
 
 class BsplineTemporalDeformationField1d(torch.nn.Module):
     def __init__(

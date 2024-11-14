@@ -4,7 +4,7 @@ Template Nerfstudio Field
 Currently this subclasses the NerfactoField. Consider subclassing the base Field.
 """
 
-from typing import Dict, Literal, Optional, Tuple, Union
+from typing import Dict, Literal, Optional, Tuple, Union, Callable
 
 import torch
 from nerfstudio.cameras.rays import Frustums, RaySamples
@@ -28,13 +28,6 @@ class TemplateNerfField(NerfactoField):
     """
 
     aabb: Tensor
-
-    # def __init__(
-    #     self,
-    #     aabb: Tensor,
-    #     num_images: int,
-    # ) -> None:
-    #     super().__init__(aabb=aabb, num_images=num_images)
 
     def __init__(
         self,
@@ -104,7 +97,7 @@ class TemplateNerfField(NerfactoField):
             raise AttributeError("Camera indices are not provided.")
         return outputs
     
-    def get_density(self, ray_samples: Union[RaySamples, Tensor], deformation_field: Optional[torch.nn.Module] = None) -> Tuple[Tensor, Tensor]:
+    def get_density(self, ray_samples: Union[RaySamples, Tensor], deformation_field: Optional[Union[torch.nn.Module, Callable]] = None) -> Tuple[Tensor, Tensor]:
         """Computes and returns the densities."""
         if self.spatial_distortion is not None:
             positions = ray_samples.frustums.get_positions()
@@ -138,7 +131,7 @@ class TemplateNerfField(NerfactoField):
         return density, base_mlp_out
 
     def get_density_from_pos(
-        self, positions: Tensor, deformation_field: Optional[torch.nn.Module] = None, time: Optional[Union[Tensor, float]] = 0.0
+        self, positions: Tensor, deformation_field: Optional[Union[torch.nn.Module, Callable]] = None, time: Optional[Union[Tensor, float]] = 0.0
     ) -> Tensor:
         if isinstance(time, Tensor):
             pass
@@ -157,7 +150,7 @@ class TemplateNerfField(NerfactoField):
         density, _ = self.get_density(ray_samples, deformation_field=deformation_field)
         return density
     
-    def forward(self, ray_samples: RaySamples, compute_normals: bool = False, deformation_field: Optional[torch.nn.Module] = None) -> Dict[FieldHeadNames, Tensor]:
+    def forward(self, ray_samples: RaySamples, compute_normals: bool = False, deformation_field: Optional[Union[torch.nn.Module, Callable]] = None) -> Dict[FieldHeadNames, Tensor]:
         """Evaluates the field at points along the ray.
 
         Args:
