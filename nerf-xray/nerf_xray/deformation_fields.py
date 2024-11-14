@@ -631,13 +631,14 @@ class BsplineTemporalIntegratedVelocityField3d(BsplineTemporalDeformationField3d
                 x = positions[mask].clone()
             x0, x1, x2 = x[:,0], x[:,1], x[:,2]
             assert self.phi_x is None
-            num_steps = int(np.abs(t-final_time)//0.05)
-            _times = torch.linspace(t, final_time, num_steps)
-            for it, _t in enumerate(_times[:-1]):
-                dt = _times[it+1] - _t
-                phi = self.weight_nn(t.view(-1,1)).view(*self.bspline_field.grid_size, 3)
-                u = self.disp_func(x0, x1, x2, phi_x=phi)
-                x0, x1, x2 = x0 + u[:,0]*dt, x1 + u[:,1]*dt, x2 + u[:,2]*dt
+            if t.item()!=final_time:
+                num_steps = int(torch.abs(t-final_time).item()//0.05)
+                _times = torch.linspace(t, final_time, num_steps, device=x.device)
+                for it, _t in enumerate(_times[:-1]):
+                    dt = _times[it+1] - _t
+                    phi = self.weight_nn(t.view(-1,1)).view(*self.bspline_field.grid_size, 3)
+                    u = self.disp_func(x0, x1, x2, phi_x=phi)
+                    x0, x1, x2 = x0 + u[:,0]*dt, x1 + u[:,1]*dt, x2 + u[:,2]*dt
                 
             if x0.dtype!=new_pos.dtype:
                 new_pos = new_pos.to(u)
