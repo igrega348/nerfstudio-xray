@@ -228,15 +228,14 @@ class VfieldPipeline(VanillaPipeline):
 
     def get_fields_mismatch_penalty(self):
         # sample time
-        t = torch.rand(20, device=self.device) # 0 to 1
-        alphas = self.model.get_mixing_coefficient(t)
-        cost = alphas * (1-alphas)
-        select = cost>0.2
-        times = t[select]
+        times = torch.rand(10, device=self.device) # 0 to 1
+        alphas = self.model.get_mixing_coefficient(times)
+        # cost = (alphas * (1-alphas)).detach() # should we detach or no?
+        cost = torch.sigmoid(50*(alphas*(1-alphas)-0.2)).detach()
         diffs = []
-        for t in times:
+        for i,t in enumerate(times):
             pos = (2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0) * 0.7 # +0.7 to -0.7
-            diffs.append(self.model.get_density_difference(pos, t.item()).pow(2).mean().view(1))
+            diffs.append(cost[i]*self.model.get_density_difference(pos, t.item()).pow(2).mean().view(1))
         if len(diffs)>0:
             loss = torch.cat(diffs).sum()
         else:

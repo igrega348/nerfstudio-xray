@@ -195,7 +195,7 @@ class BsplineDeformationField(torch.nn.Module):
         x[...,2] += self.bspline_field.displacement(x[...,2].view(-1)).view(x.shape[:-1])
         return x
     
-@torch.jit.script
+# @torch.jit.script
 def bspline(u: torch.Tensor, i: int) -> Tensor:
     """B-spline functions.
 
@@ -397,10 +397,10 @@ class BSplineField3d(torch.nn.Module):
         ind_y = ind_y.clamp(0, ny-1)
         ind_z = ind_z.clamp(0, nz-1)
         flat_index = ind_z + nz*ind_y + nz*ny*ind_x
-        weights_x = torch.stack([bspline(u, i) for i in range(4)], dim=1)
-        weights_y = torch.stack([bspline(v, i) for i in range(4)], dim=1)
-        weights_z = torch.stack([bspline(w, i) for i in range(4)], dim=1)
-        weights = (weights_x[:,:,None,None] * weights_y[:,None,:,None] * weights_z[:,None,None,:]).reshape(npoints, 64)
+        weights_x = torch.stack([bspline(u, i) for i in range(4)], dim=-1)
+        weights_y = torch.stack([bspline(v, i) for i in range(4)], dim=-1)
+        weights_z = torch.stack([bspline(w, i) for i in range(4)], dim=-1)
+        weights = (weights_x[...,:,:,None,None] * weights_y[...,:,None,:,None] * weights_z[...,:,None,None,:]).reshape(npoints, 64)
         del u, v, w, weights_x, weights_y, weights_z, ind_x, ind_y, ind_z, ix, iy, iz
         if not self.support_outside: weights[out_of_support] = torch.nan
 
@@ -412,7 +412,7 @@ class BSplineField3d(torch.nn.Module):
             A = torch.sparse_coo_tensor(torch.vstack([idx0, flat_index]), weights, size=(npoints, nx*ny*nz), device=x.device)
         else:
             A = x.new_zeros(npoints, nx*ny*nz)
-            A = A.scatter_add_(dim=1, index=flat_index, src=weights)
+            A = A.scatter_add_(dim=-1, index=flat_index, src=weights)
         return A
 
     def matrix_vector_displacement(self, x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, phi_x: Optional[torch.Tensor] = None) -> torch.Tensor:
@@ -529,14 +529,10 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
         num_control_points = config.num_control_points
         weight_nn_width = config.weight_nn_width
         
-        if phi_x is not None:
-            assert phi_x.ndim == 5 # [ntimes, nx, ny, nz, 3]
-            num_control_points = phi_x.shape[1:4]
-            self.phi_x = phi_x
-        else:
-            assert num_control_points is not None
-            self.phi_x = None
-            self.weight_nn = NeuralPhiX(3*np.prod(num_control_points), 3, weight_nn_width)
+        assert phi_x is None
+        assert num_control_points is not None
+        self.phi_x = None
+        self.weight_nn = NeuralPhiX(3*np.prod(num_control_points), 3, weight_nn_width)
         self.bspline_field = BSplineField3d(support_outside=support_outside, support_range=support_range, num_control_points=num_control_points)
         self.register_buffer('support_range', torch.tensor(support_range))
         self.warning_printed = False
@@ -547,28 +543,41 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
         else:
             raise ValueError('Displacement method has to be matrix or neighborhood')
 
+    def get_u(self, positions, times):
+        phi = self.weight_nn(times).view(*self.bspline_field.grid_size, 3)
+        x0, x1, x2 = positions[:,0], positions[:,1], positions[:,2]
+        u = self.disp_func(x0, x1, x2, phi_x=phi)
+        return u
+
     def forward(self, positions: Tensor, times: Tensor) -> Tensor:
-        # positions, times of shape [ray, nsamples, 3]
-        displacement = positions.new_zeros(positions.shape)
-        uq_times = torch.unique(times)
-        for t in uq_times:
-            mask = (times == t).squeeze()
-            if mask.numel()==1:
-                x = positions
-            else:
-                x = positions[mask]
-            x0, x1, x2 = x[:,0], x[:,1], x[:,2]
-            if self.phi_x is None:
-                phi = self.weight_nn(t.view(-1,1)).view(*self.bspline_field.grid_size, 3)
-            else:
-                phi = self.phi_x[:t+1].sum(dim=0)
-            u = self.disp_func(x0, x1, x2, phi_x=phi)
-            if u.dtype!=displacement.dtype:
-                displacement = displacement.to(u)
-                if not self.warning_printed:
-                    print('displacement dtype changed to', u.dtype)
-                    self.warning_printed = True
-            displacement[mask] = u
+        # positions of shape [ray, nsamples, 3]
+        # times of shape [ray, nsamples, 1]
+        use_vmap = False
+        if use_vmap:
+            nsamples = positions.size(-2)
+            assert positions.size(-1)==3
+            orig_shape = positions.shape
+            
+            assert times.std(dim=-2).max()==0
+            times = times[..., 0, :] # [rays, 1]
+            displacement = torch.vmap(self.get_u, in_dims=0, out_dims=0)(positions.view(-1, nsamples, 3), times.view(-1,1))
+            displacement = displacement.reshape(orig_shape)
+        else:
+            displacement = positions.new_zeros(positions.shape)
+            uq_times = torch.unique(times)
+            for t in uq_times:
+                mask = (times == t).squeeze()
+                if mask.numel()==1:
+                    x = positions
+                else:
+                    x = positions[mask]
+                u = self.get_u(x, t.view(-1,1))
+                if u.dtype!=displacement.dtype:
+                    displacement = displacement.to(u)
+                    if not self.warning_printed:
+                        print('displacement dtype changed to', u.dtype)
+                        self.warning_printed = True
+                displacement[mask] = u
         return positions + displacement
 
     def mean_disp(self) -> float:
@@ -631,9 +640,11 @@ class BsplineTemporalIntegratedVelocityField3d(BsplineTemporalDeformationField3d
                 x = positions[mask].clone()
             x0, x1, x2 = x[:,0], x[:,1], x[:,2]
             assert self.phi_x is None
-            if t.item()!=final_time:
+            if t.item()!=final_time: # add more randomness to this to make it "grid-free"
                 num_steps = int(torch.abs(t-final_time).item()//0.05)
                 _times = torch.linspace(t, final_time, num_steps, device=x.device)
+                if _times.shape[0]>2:
+                    _times[1:-1] += 0.01*(torch.rand(_times.shape[0]-2, device=x.device)-0.5)
                 for it, _t in enumerate(_times[:-1]):
                     dt = _times[it+1] - _t
                     phi = self.weight_nn(t.view(-1,1)).view(*self.bspline_field.grid_size, 3)

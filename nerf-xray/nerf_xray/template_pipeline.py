@@ -263,14 +263,14 @@ class TemplatePipeline(VanillaPipeline):
             if self.model.deformation_field is not None:
                 time = 0.0
                 density_loss = self.calculate_density_loss(sampling='random', time=time)
-                loss_dict[f'volumetric_loss_{time:.0f}'] = -self.config.volumetric_supervision_coefficient*density_loss['normed_correlation']
+                loss_dict[f'volumetric_loss_{time:.0f}'] = self.config.volumetric_supervision_coefficient*(1-density_loss['normed_correlation'])
                 if hasattr(self.datamanager, 'final_object') and self.datamanager.final_object is not None:
                     time = 1.0
                     density_loss = self.calculate_density_loss(sampling='random', time=time)
-                    loss_dict[f'volumetric_loss_{time:.0f}'] = -self.config.volumetric_supervision_coefficient*density_loss['normed_correlation']
+                    loss_dict[f'volumetric_loss_{time:.0f}'] = self.config.volumetric_supervision_coefficient*(1-density_loss['normed_correlation'])
             else:
                 density_loss = self.calculate_density_loss(sampling='random')
-                loss_dict['volumetric_loss'] = -self.config.volumetric_supervision_coefficient*density_loss['normed_correlation']
+                loss_dict['volumetric_loss'] = self.config.volumetric_supervision_coefficient*(1-density_loss['normed_correlation'])
 
         return model_outputs, loss_dict, metrics_dict
     
