@@ -252,23 +252,39 @@ class TwofieldPipeline(VanillaPipeline):
         out['field_closure_b'] = torch.nn.functional.mse_loss(x, x_bar)
 
         return out
-
+    
     def get_fields_mismatch_penalty(self):
         # sample time
-        t = torch.rand(20, device=self.device) # 0 to 1
-        alphas = self.model.get_mixing_coefficient(t)
-        cost = alphas * (1-alphas)
-        select = cost>0.2
-        times = t[select]
+        times = torch.rand(10, device=self.device) # 0 to 1
+        alphas = self.model.get_mixing_coefficient(times)
+        # cost = (alphas * (1-alphas)).detach() # should we detach or no?
+        cost = torch.sigmoid(50*(alphas*(1-alphas)-0.2)).detach()
         diffs = []
-        for t in times:
-            pos = (2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0) * 0.7 # +0.7 to -0.7
-            diffs.append(self.model.get_density_difference(pos, t.item()).pow(2).mean().view(1))
+        for i,t in enumerate(times):
+            pos = (2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0) #* 0.8 # +0.8 to -0.8
+            diffs.append(cost[i]*self.model.get_density_difference(pos, t.item()).pow(2).mean().view(1))
         if len(diffs)>0:
             loss = torch.cat(diffs).sum()
         else:
             loss = t.new_zeros(1)
         return loss
+
+    # def get_fields_mismatch_penalty(self):
+    #     # sample time
+    #     t = torch.rand(20, device=self.device) # 0 to 1
+    #     alphas = self.model.get_mixing_coefficient(t)
+    #     cost = alphas * (1-alphas)
+    #     select = cost>0.2
+    #     times = t[select]
+    #     diffs = []
+    #     for t in times:
+    #         pos = (2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0) * 0.7 # +0.7 to -0.7
+    #         diffs.append(self.model.get_density_difference(pos, t.item()).pow(2).mean().view(1))
+    #     if len(diffs)>0:
+    #         loss = torch.cat(diffs).sum()
+    #     else:
+    #         loss = t.new_zeros(1)
+    #     return loss
 
     @profiler.time_function
     def get_train_loss_dict(self, step: int):
@@ -297,11 +313,11 @@ class TwofieldPipeline(VanillaPipeline):
             assert self.datamanager.object is not None
             time = 0.0
             density_loss = self.calculate_density_loss(sampling='random', time=time)
-            loss_dict[f'volumetric_loss_{time:.0f}'] = -self.config.volumetric_supervision_coefficient*density_loss['normed_correlation']
+            loss_dict[f'volumetric_loss_{time:.0f}'] = self.config.volumetric_supervision_coefficient*(1-density_loss['normed_correlation'])
             if hasattr(self.datamanager, 'final_object') and self.datamanager.final_object is not None:
                 time = 1.0
                 density_loss = self.calculate_density_loss(sampling='random', time=time)
-                loss_dict[f'volumetric_loss_{time:.0f}'] = -self.config.volumetric_supervision_coefficient*density_loss['normed_correlation']
+                loss_dict[f'volumetric_loss_{time:.0f}'] = self.config.volumetric_supervision_coefficient*(1-density_loss['normed_correlation'])
 
         return model_outputs, loss_dict, metrics_dict
     

@@ -1,3 +1,4 @@
+from typing import Optional
 from pathlib import Path
 import torch
 import numpy as np
@@ -45,7 +46,8 @@ def main(
     old_resolution: int,
     new_resolution: int,
     old_nn_width: int,
-    new_nn_width: int
+    new_nn_width: int,
+    out_path: Optional[Path] = None
 ):
     old_df_f, old_df_b, key_map_f, key_map_b = load_def_field(ckpt_path, old_resolution, old_nn_width)
     new_df_f = make_def_field(new_resolution, new_nn_width)
@@ -59,7 +61,7 @@ def main(
     optimizer = torch.optim.AdamW(list(new_df_f.parameters())+list(new_df_b.parameters()), lr=1e-2)
     scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, 1.0, 0.01, 1000)
     losses = []
-    pbar = trange(1500)
+    pbar = trange(1000)
 
     for i in pbar:
         optimizer.zero_grad()
@@ -104,9 +106,10 @@ def main(
         data['pipeline'][key_map_f[key]] = new_dict_f[key].to('cuda')
     for key in key_map_b:
         data['pipeline'][key_map_b[key]] = new_dict_b[key].to('cuda')
-    new_p = ckpt_path.with_name(ckpt_path.stem+'-mod.ckpt')
-    torch.save(data, new_p)
-    print(f'Modified checkpoint saved to: {new_p}')
+    if out_path is None:
+        out_path = ckpt_path.with_name(ckpt_path.stem+'-mod.ckpt')
+    torch.save(data, out_path)
+    print(f'Modified checkpoint saved to: {out_path}')
 
 if __name__=='__main__':
     tyro.cli(main)
