@@ -27,7 +27,7 @@ xray_vfield = MethodSpecification(
         method_name="xray_vfield", 
         steps_per_eval_batch=10,
         steps_per_eval_all_images=1000000,
-        steps_per_eval_image=100,
+        steps_per_eval_image=200,
         steps_per_save=5000,
         max_num_iterations=501,
         mixed_precision=True,
@@ -38,7 +38,7 @@ xray_vfield = MethodSpecification(
                 dataparser=TemplateDataParserConfig(
                     auto_scale_poses=False,
                     center_method='none',
-                    downscale_factors={'train': 1, 'val': 4, 'test': 4},
+                    downscale_factors={'train': 1, 'val': 8, 'test': 8},
                     eval_mode='filename+modulo',
                     includes_time=True,
                 ),
@@ -60,6 +60,7 @@ xray_vfield = MethodSpecification(
                 deformation_field=BsplineTemporalIntegratedVelocityField3dConfig(
                     support_range=[(-1,1),(-1,1),(-1,1)],
                     num_control_points=(4,4,4),
+                    timedelta=0.05,
                 )
             ),
             volumetric_supervision=False,

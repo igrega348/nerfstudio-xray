@@ -1,6 +1,7 @@
 from typing import Callable, Dict, Iterable, Optional, Tuple, Union, List, Type, Literal
 from dataclasses import dataclass, field
 from abc import abstractmethod
+from math import ceil
 
 import numpy as np
 import torch
@@ -626,6 +627,8 @@ class BsplineTemporalVelocityField3d(BsplineTemporalDeformationField3d):
 class BsplineTemporalIntegratedVelocityField3dConfig(BsplineTemporalDeformationField3dConfig):
     _target: Type = field(default_factory=lambda: BsplineTemporalIntegratedVelocityField3d)
     """target class to instantiate"""
+    timedelta: float = 0.05
+    """Time step for integration"""
 
 class BsplineTemporalIntegratedVelocityField3d(BsplineTemporalDeformationField3d):
     def forward(self, positions, times, final_time):
@@ -641,10 +644,10 @@ class BsplineTemporalIntegratedVelocityField3d(BsplineTemporalDeformationField3d
             x0, x1, x2 = x[:,0], x[:,1], x[:,2]
             assert self.phi_x is None
             if t.item()!=final_time: # add more randomness to this to make it "grid-free"
-                num_steps = int(torch.abs(t-final_time).item()//0.05)
+                num_steps = ceil(torch.abs(t-final_time).item()/self.config.timedelta)
                 _times = torch.linspace(t, final_time, num_steps, device=x.device)
                 if _times.shape[0]>2:
-                    _times[1:-1] += 0.01*(torch.rand(_times.shape[0]-2, device=x.device)-0.5)
+                    _times[1:-1] += 0.005*(torch.rand(_times.shape[0]-2, device=x.device)-0.5)
                 for it, _t in enumerate(_times[:-1]):
                     dt = _times[it+1] - _t
                     phi = self.weight_nn(t.view(-1,1)).view(*self.bspline_field.grid_size, 3)

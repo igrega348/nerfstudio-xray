@@ -39,7 +39,7 @@ xray_twofield = MethodSpecification(
                 dataparser=TemplateDataParserConfig(
                     auto_scale_poses=False,
                     center_method='none',
-                    downscale_factors={'train': 1, 'val': 4, 'test': 4},
+                    downscale_factors={'train': 1, 'val': 8, 'test': 8},
                     eval_mode='filename+modulo',
                     includes_time=True,
                 ),

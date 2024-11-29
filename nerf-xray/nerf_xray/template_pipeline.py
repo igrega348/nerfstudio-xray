@@ -55,6 +55,8 @@ class TemplatePipelineConfig(VanillaPipelineConfig):
     """coefficient for the volumetric supervision loss"""
     load_density_ckpt: Optional[Path] = None
     """specifies the path to the density field to load"""
+    flat_field_penalty: float = 0.01
+    """penalty to increase flat field"""
 
 
 class TemplatePipeline(VanillaPipeline):
@@ -239,7 +241,7 @@ class TemplatePipeline(VanillaPipeline):
             }
 
     def get_flat_field_penalty(self):
-        return -0.01*self.model.flat_field
+        return -self.config.flat_field_penalty*self.model.flat_field
 
     @profiler.time_function
     def get_train_loss_dict(self, step: int):
