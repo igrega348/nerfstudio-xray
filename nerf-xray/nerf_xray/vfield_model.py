@@ -132,7 +132,7 @@ class VfieldModel(Model):
         self.deformation_field = self.config.deformation_field.setup()
 
         self.field_weighing = BSplineField1d(
-            torch.nn.parameter.Parameter(torch.linspace(-1,1,10)), 
+            torch.nn.parameter.Parameter(torch.zeros(10)), 
             support_outside=True, 
             support_range=(0,1)
         )
