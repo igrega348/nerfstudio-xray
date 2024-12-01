@@ -70,6 +70,8 @@ class VfieldModelConfig(NerfactoModelConfig):
     """initial value of flat field"""
     flat_field_trainable: bool = False
     """trainable background color"""
+    train_field_weighing: bool = True
+    """whether to train field weighing"""
 
 class VfieldModel(Model):
     """Nerfacto model
@@ -136,6 +138,8 @@ class VfieldModel(Model):
             support_outside=True, 
             support_range=(0,1)
         )
+        if not self.config.train_field_weighing:
+            self.field_weighing.requires_grad_(False)
 
         # train density or deformation field
         if not self.config.train_density_field:
@@ -246,7 +250,7 @@ class VfieldModel(Model):
         param_groups["fields"] = list(self.field_f.parameters())
         param_groups["fields"].extend(list(self.field_b.parameters()))
         param_groups['fields'].extend(list(self.deformation_field.parameters()))
-        param_groups['fields'].extend(list(self.field_weighing.parameters()))
+        param_groups['field_weighing'] = list(self.field_weighing.parameters())
         # trainable background color
         if self.config.flat_field_trainable:
             param_groups["flat_field"] = [self.flat_field]

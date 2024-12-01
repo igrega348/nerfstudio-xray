@@ -61,7 +61,8 @@ xray_vfield = MethodSpecification(
                     support_range=[(-1,1),(-1,1),(-1,1)],
                     num_control_points=(4,4,4),
                     timedelta=0.05,
-                )
+                ),
+                train_field_weighing=False,
             ),
             volumetric_supervision=False,
         ),
@@ -73,6 +74,10 @@ xray_vfield = MethodSpecification(
             },
             "fields": {
                 "optimizer": AdamWOptimizerConfig(lr=1e-3, eps=1e-15, weight_decay=1e-8),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=3e-4, max_steps=10000),
+            },
+            "field_weighing": {
+                "optimizer": AdamWOptimizerConfig(lr=1e-2, eps=1e-15, weight_decay=1e-8),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=3e-4, max_steps=10000),
             },
             # "fields": {
