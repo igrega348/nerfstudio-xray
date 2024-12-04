@@ -34,7 +34,7 @@ from torch.cuda.amp.grad_scaler import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from nerf_xray.xray_datamanager import XrayDataManagerConfig
-from nerf_xray.template_model import TemplateModel, TemplateModelConfig
+from nerf_xray.vfield_model import VfieldModel, VfieldModelConfig
 
 
 @dataclass
@@ -45,7 +45,7 @@ class VfieldPipelineConfig(VanillaPipelineConfig):
     """target class to instantiate"""
     datamanager: DataManagerConfig = XrayDataManagerConfig()
     """specifies the datamanager config"""
-    model: ModelConfig = TemplateModelConfig()
+    model: ModelConfig = VfieldModelConfig()
     """specifies the model config"""
     volumetric_supervision: bool = False
     """specifies if the training gets volumetric supervision"""
@@ -59,6 +59,8 @@ class VfieldPipelineConfig(VanillaPipelineConfig):
     """multiplicative factor for field closure"""
     load_density_ckpt: Optional[Path] = None
     """specifies the path to the density field to load"""
+    flat_field_loss_multiplier: float = 0.001
+    """multiplier for flat field regularization"""
 
 
 class VfieldPipeline(VanillaPipeline):
@@ -98,7 +100,7 @@ class VfieldPipeline(VanillaPipeline):
         self.world_size = world_size
         if world_size > 1:
             self._model = typing.cast(
-                TemplateModel, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True)
+                VfieldModel, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True)
             )
             dist.barrier(device_ids=[local_rank])
 
@@ -116,7 +118,7 @@ class VfieldPipeline(VanillaPipeline):
         metrics_dict: Dict
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
         metrics_dict.update(
-            {'flat_field': self.model.flat_field.data.item()}
+            {'flat_field': self.model.flat_field.phi_x.mean()}
         )
         if self.datamanager.object is not None:
             metrics_dict.update({k+'_0':v for k,v in self.calculate_density_loss(time=0.0).items()})
@@ -206,36 +208,35 @@ class VfieldPipeline(VanillaPipeline):
         x = density
         y = pred_density
 
-        density_loss = torch.nn.functional.mse_loss(y, x)
-
-        density_n = (x - x.min()) / (x.max() - x.min())
-        pred_dens_n = (y - y.min()) / (y.max() - y.min())
-        scaled_density_loss = torch.nn.functional.mse_loss(pred_dens_n, density_n)
-        
         mux = x.mean()
         muy = y.mean()
         dx = x-mux
         dy = y-muy
         normed_correlation = torch.sum(dx*dy) / torch.sqrt(dx.pow(2).sum() * dy.pow(2).sum())
         return {
-            'volumetric_loss': density_loss, 
-            'scaled_volumetric_loss': scaled_density_loss,
             'normed_correlation': normed_correlation
             }
 
     def get_flat_field_penalty(self):
-        return -0.01*self.model.flat_field
+        return -self.config.flat_field_regularizer*self.model.flat_field.phi_x.mean()
 
     def get_fields_mismatch_penalty(self):
+        if self.model.config.direction != 'both':
+            return torch.zeros(1, device=self.device)
         # sample time
-        times = torch.rand(10, device=self.device) # 0 to 1
+        times = torch.linspace(0, 1, 11, device=self.device) # 0 to 1
+        if self.training: # perturb
+            times += (torch.rand(11)-0.5)*0.1
         alphas = self.model.get_mixing_coefficient(times)
         # cost = (alphas * (1-alphas)).detach() # should we detach or no?
         cost = torch.sigmoid(50*(alphas*(1-alphas)-0.2))#.detach()
         diffs = []
         for i,t in enumerate(times):
             pos = (2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0) * 0.7 # +0.7 to -0.7
-            diffs.append(cost[i]*self.model.get_density_difference(pos, t.item()).pow(2).mean().view(1))
+            diff = self.model.get_density_difference(pos, t.item()).pow(2).mean().view(1)
+            if self.training:
+                diff = diff * cost[i]
+            diffs.append(diff)
         if len(diffs)>0:
             loss = torch.cat(diffs).sum()
         else:
@@ -258,7 +259,7 @@ class VfieldPipeline(VanillaPipeline):
 
         loss_dict['flat_field_loss'] = self.get_flat_field_penalty()
 
-        if self.config.density_mismatch_start_step>=0 and step>self.config.density_mismatch_start_step:
+        if self.config.density_mismatch_start_step>=0 and step>self.config.density_mismatch_start_step and (self.model.field_f is not None) and (self.model.field_b is not None):
             loss_dict.update({'mismatch_penalty':self.config.density_mismatch_coefficient*self.get_fields_mismatch_penalty()})
         
         

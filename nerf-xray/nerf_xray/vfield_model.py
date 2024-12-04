@@ -48,10 +48,9 @@ from .deformation_fields import (AffineTemporalDeformationField,
                                  DeformationFieldConfig,
                                  IdentityDeformationField,
                                  MLPDeformationField)
-from .template_field import TemplateNerfField
+from .template_field import TemplateNerfField, PlaceHolderField
 from .xray_renderer import AttenuationRenderer
-
-
+    
 @dataclass
 class VfieldModelConfig(NerfactoModelConfig):
     """Template Model Configuration.
@@ -72,6 +71,8 @@ class VfieldModelConfig(NerfactoModelConfig):
     """trainable background color"""
     train_field_weighing: bool = True
     """whether to train field weighing"""
+    direction: Literal['forward','backward','both'] = 'both'
+    """direction in which to fit the model"""
 
 class VfieldModel(Model):
     """Nerfacto model
@@ -94,42 +95,49 @@ class VfieldModel(Model):
         appearance_embedding_dim = self.config.appearance_embed_dim if self.config.use_appearance_embedding else 0
 
         # Fields
-        self.field_f = TemplateNerfField(
-            self.scene_box.aabb,
-            hidden_dim=self.config.hidden_dim,
-            num_levels=self.config.num_levels,
-            max_res=self.config.max_res,
-            base_res=self.config.base_res,
-            features_per_level=self.config.features_per_level,
-            log2_hashmap_size=self.config.log2_hashmap_size,
-            hidden_dim_color=self.config.hidden_dim_color,
-            hidden_dim_transient=self.config.hidden_dim_transient,
-            spatial_distortion=scene_contraction,
-            num_images=self.num_train_data,
-            use_pred_normals=self.config.predict_normals,
-            use_average_appearance_embedding=self.config.use_average_appearance_embedding,
-            appearance_embedding_dim=appearance_embedding_dim,
-            average_init_density=self.config.average_init_density,
-            implementation=self.config.implementation,
-        )
-        self.field_b = TemplateNerfField(
-            self.scene_box.aabb,
-            hidden_dim=self.config.hidden_dim,
-            num_levels=self.config.num_levels,
-            max_res=self.config.max_res,
-            base_res=self.config.base_res,
-            features_per_level=self.config.features_per_level,
-            log2_hashmap_size=self.config.log2_hashmap_size,
-            hidden_dim_color=self.config.hidden_dim_color,
-            hidden_dim_transient=self.config.hidden_dim_transient,
-            spatial_distortion=scene_contraction,
-            num_images=self.num_train_data,
-            use_pred_normals=self.config.predict_normals,
-            use_average_appearance_embedding=self.config.use_average_appearance_embedding,
-            appearance_embedding_dim=appearance_embedding_dim,
-            average_init_density=self.config.average_init_density,
-            implementation=self.config.implementation,
-        )
+        if self.config.direction in ['forward', 'both']:
+            self.field_f = TemplateNerfField(
+                self.scene_box.aabb,
+                hidden_dim=self.config.hidden_dim,
+                num_levels=self.config.num_levels,
+                max_res=self.config.max_res,
+                base_res=self.config.base_res,
+                features_per_level=self.config.features_per_level,
+                log2_hashmap_size=self.config.log2_hashmap_size,
+                hidden_dim_color=self.config.hidden_dim_color,
+                hidden_dim_transient=self.config.hidden_dim_transient,
+                spatial_distortion=scene_contraction,
+                num_images=self.num_train_data,
+                use_pred_normals=self.config.predict_normals,
+                use_average_appearance_embedding=self.config.use_average_appearance_embedding,
+                appearance_embedding_dim=appearance_embedding_dim,
+                average_init_density=self.config.average_init_density,
+                implementation=self.config.implementation,
+            )
+        else:
+            self.field_f = PlaceHolderField()
+
+        if self.config.direction in ['backward', 'both']:
+            self.field_b = TemplateNerfField(
+                self.scene_box.aabb,
+                hidden_dim=self.config.hidden_dim,
+                num_levels=self.config.num_levels,
+                max_res=self.config.max_res,
+                base_res=self.config.base_res,
+                features_per_level=self.config.features_per_level,
+                log2_hashmap_size=self.config.log2_hashmap_size,
+                hidden_dim_color=self.config.hidden_dim_color,
+                hidden_dim_transient=self.config.hidden_dim_transient,
+                spatial_distortion=scene_contraction,
+                num_images=self.num_train_data,
+                use_pred_normals=self.config.predict_normals,
+                use_average_appearance_embedding=self.config.use_average_appearance_embedding,
+                appearance_embedding_dim=appearance_embedding_dim,
+                average_init_density=self.config.average_init_density,
+                implementation=self.config.implementation,
+            )
+        else:
+            self.field_b = PlaceHolderField()
 
         self.deformation_field = self.config.deformation_field.setup()
 
@@ -222,10 +230,17 @@ class VfieldModel(Model):
             ff = _ff
         else:
             ff = self.config.flat_field_value
-        self.flat_field = torch.nn.Parameter(
-            torch.tensor(ff, dtype=torch.float32), 
-            self.config.flat_field_trainable
+        # self.flat_field = torch.nn.Parameter(
+        #     torch.tensor(ff, dtype=torch.float32), 
+        #     self.config.flat_field_trainable
+        # )
+        self.flat_field = BSplineField1d(
+            torch.nn.parameter.Parameter(ff*torch.ones(5)), 
+            support_outside=True, 
+            support_range=(0,1)
         )
+        if not self.config.flat_field_trainable:
+            self.flat_field.requires_grad_(False)
 
         # shaders
         self.normals_shader = NormalsShader()
@@ -252,8 +267,8 @@ class VfieldModel(Model):
         param_groups['fields'].extend(list(self.deformation_field.parameters()))
         param_groups['field_weighing'] = list(self.field_weighing.parameters())
         # trainable background color
-        if self.config.flat_field_trainable:
-            param_groups["flat_field"] = [self.flat_field]
+        # if self.config.flat_field_trainable:
+        param_groups["flat_field"] = list(self.flat_field.parameters())
         self.camera_optimizer.get_param_groups(param_groups=param_groups)
         return param_groups
 
@@ -317,7 +332,12 @@ class VfieldModel(Model):
         alphas = torch.nn.functional.sigmoid(alphas)
         return alphas
 
-    def mix_two_fields(self, field_f_outputs: Union[Dict, Tensor], field_b_outputs: Union[Dict, Tensor], times: Tensor):
+    def mix_two_fields(self, field_f_outputs: Union[Dict, Tensor, None], field_b_outputs: Union[Dict, Tensor, None], times: Tensor) -> Union[Dict, Tensor]:
+        if field_f_outputs is None:
+            return field_b_outputs
+        elif field_b_outputs is None:
+            return field_f_outputs
+
         alphas = self.field_weighing(times.reshape(-1)).view(times.shape)
         alphas = torch.nn.functional.sigmoid(alphas)
         # alphas = float(torch.rand(1)<0.5) # sample one or the other
@@ -338,14 +358,21 @@ class VfieldModel(Model):
             time = positions.new_ones(1)*time
         else:
             raise ValueError(f'`time` of type {type(time)}')
-        density_f = self.field_f.get_density_from_pos(positions, deformation_field=lambda x,t: self.deformation_field(x,t,0.0), time=time).squeeze()
-        density_b = self.field_b.get_density_from_pos(positions, deformation_field=lambda x,t: self.deformation_field(x,t,1.0), time=time).squeeze()
+        density_f = self.field_f.get_density_from_pos(positions, deformation_field=lambda x,t: self.deformation_field(x,t,0.0), time=time)
+        if density_f is not None:
+            density_f = density_f.squeeze()
+        density_b = self.field_b.get_density_from_pos(positions, deformation_field=lambda x,t: self.deformation_field(x,t,1.0), time=time)
+        if density_b is not None:
+            density_b = density_b.squeeze()
         density = self.mix_two_fields(density_f, density_b, time)
         return density
 
     def get_density_difference(
         self, positions: Tensor, time: Optional[Union[Tensor, float]] = None
     ) -> Tensor:
+        if self.config.direction != 'both':
+            return positions.new_zeros(positions.shape[:-1])
+
         if time is None:
             time = positions.new_zeros(1)
         elif isinstance(time, float):
@@ -378,7 +405,8 @@ class VfieldModel(Model):
         expected_depth = self.renderer_expected_depth(weights=weights, ray_samples=ray_samples)
         accumulation = self.renderer_accumulation(weights=weights)
         attenuation = self.renderer_attenuation(densities=field_outputs[FieldHeadNames.DENSITY], ray_samples=ray_samples)
-        rgb = self.renderer_attenuation.merge_flat_field(attenuation, self.flat_field) * attenuation.new_ones(1,3)
+        flat_field = self.flat_field(ray_bundle.times.view(-1)).view(-1,1)
+        rgb = self.renderer_attenuation.merge_flat_field(attenuation, flat_field) * attenuation.new_ones(1,3)
 
         outputs = {
             "rgb": rgb,

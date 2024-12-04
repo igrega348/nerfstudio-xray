@@ -4,13 +4,23 @@ import torch
 import tyro
 
 def main(
-    fwd_ckpt: Path, 
-    bwd_ckpt: Path, 
-    out_fn: Path
+    fwd_ckpt: Optional[Path] = None, 
+    bwd_ckpt: Optional[Path] = None, 
+    out_fn: Optional[Path] = None
 ):
-    assert fwd_ckpt.exists() and bwd_ckpt.exists()
+    assert fwd_ckpt is not None or bwd_ckpt is not None
+    if fwd_ckpt is not None:
+        assert fwd_ckpt.exists()
+        if out_fn is None:
+            out_fn = fwd_ckpt.with_name('combined.ckpt')
+    if bwd_ckpt is not None:
+        assert bwd_ckpt.exists()
+        if out_fn is None:
+            out_fn = bwd_ckpt.with_name('combined.ckpt')
+
     combined_state_dict = {'pipeline':{}}
     for direction, ckpt in zip(['f', 'b'], [fwd_ckpt, bwd_ckpt]):
+        if ckpt is None: continue
         data = torch.load(ckpt)
         for key, val in data.items():
             if key=='step':

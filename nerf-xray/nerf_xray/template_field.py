@@ -170,3 +170,13 @@ class TemplateNerfField(NerfactoField):
                 normals = self.get_normals()
             field_outputs[FieldHeadNames.NORMALS] = normals  # type: ignore
         return field_outputs
+
+class PlaceHolderField(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, *args, **kwargs):
+        return None
+
+    def get_density_from_pos(self, *args, **kwargs):
+        return None
