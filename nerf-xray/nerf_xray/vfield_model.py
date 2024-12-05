@@ -9,8 +9,6 @@ from typing import Dict, List, Literal, Tuple, Type, Union, Optional
 import numpy as np
 import torch
 from jaxtyping import Float, Shaped
-from nerfstudio.cameras.camera_optimizers import (CameraOptimizer,
-                                                  CameraOptimizerConfig)
 from nerfstudio.cameras.cameras import Cameras
 from nerfstudio.cameras.rays import RayBundle, RaySamples
 from nerfstudio.engine.callbacks import (TrainingCallback,
@@ -73,6 +71,10 @@ class VfieldModelConfig(NerfactoModelConfig):
     """whether to train field weighing"""
     direction: Literal['forward','backward','both'] = 'both'
     """direction in which to fit the model"""
+    camera_optimizer = None
+    """Config of the camera optimizer to use"""
+    disable_mixing: bool = False
+    """If True, the outputs will alternate between forward and backward canonical models"""
 
 class VfieldModel(Model):
     """Nerfacto model
@@ -156,9 +158,7 @@ class VfieldModel(Model):
         if not self.config.train_deformation_field:
             self.deformation_field.requires_grad_(False)
 
-        self.camera_optimizer: CameraOptimizer = self.config.camera_optimizer.setup(
-            num_cameras=self.num_train_data, device="cpu"
-        )
+        self.camera_optimizer = None
         self.density_fns = []
         num_prop_nets = self.config.num_proposal_iterations
         # Build the proposal network(s)
@@ -235,7 +235,7 @@ class VfieldModel(Model):
         #     self.config.flat_field_trainable
         # )
         self.flat_field = BSplineField1d(
-            torch.nn.parameter.Parameter(ff*torch.ones(5)), 
+            torch.nn.parameter.Parameter(ff*torch.ones(10)), 
             support_outside=True, 
             support_range=(0,1)
         )
@@ -269,7 +269,6 @@ class VfieldModel(Model):
         # trainable background color
         # if self.config.flat_field_trainable:
         param_groups["flat_field"] = list(self.flat_field.parameters())
-        self.camera_optimizer.get_param_groups(param_groups=param_groups)
         return param_groups
 
     def get_training_callbacks(
@@ -338,6 +337,13 @@ class VfieldModel(Model):
         elif field_b_outputs is None:
             return field_f_outputs
 
+        if self.config.disable_mixing and self.training:
+            # p = torch.rand(1).item()
+            if self.step%10<5:
+                return field_f_outputs
+            else:
+                return field_b_outputs
+
         alphas = self.field_weighing(times.reshape(-1)).view(times.shape)
         alphas = torch.nn.functional.sigmoid(alphas)
         # alphas = float(torch.rand(1)<0.5) # sample one or the other
@@ -385,8 +391,6 @@ class VfieldModel(Model):
 
     def get_outputs(self, ray_bundle: RayBundle):
         # apply the camera optimizer pose tweaks
-        if self.training:
-            self.camera_optimizer.apply_to_raybundle(ray_bundle)
         ray_samples: RaySamples
         ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
         field_f_outputs = self.field_f.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,0.0))
@@ -451,7 +455,6 @@ class VfieldModel(Model):
         if self.training:
             metrics_dict["distortion"] = distortion_loss(outputs["weights_list"], outputs["ray_samples_list"])
 
-        self.camera_optimizer.get_metrics_dict(metrics_dict)
         if self.deformation_field is not None:
             metrics_dict["mean_disp"] = self.deformation_field.mean_disp()
             metrics_dict['max_disp'] = self.deformation_field.max_disp()
@@ -483,8 +486,6 @@ class VfieldModel(Model):
                 loss_dict["pred_normal_loss"] = self.config.pred_normal_loss_mult * torch.mean(
                     outputs["rendered_pred_normal_loss"]
                 )
-            # Add loss from camera optimizer
-            self.camera_optimizer.get_loss_dict(loss_dict)
         return loss_dict
 
     def get_image_metrics_and_images(

@@ -218,7 +218,7 @@ class VfieldPipeline(VanillaPipeline):
             }
 
     def get_flat_field_penalty(self):
-        return -self.config.flat_field_regularizer*self.model.flat_field.phi_x.mean()
+        return -self.config.flat_field_loss_multiplier*self.model.flat_field.phi_x.mean()
 
     def get_fields_mismatch_penalty(self):
         if self.model.config.direction != 'both':
