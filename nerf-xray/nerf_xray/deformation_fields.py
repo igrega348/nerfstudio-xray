@@ -99,7 +99,8 @@ class BSplineField1d(torch.nn.Module):
             support_outside: bool = False, 
             support_range: Optional[Tuple[float,float]] = None,
             num_control_points: Optional[int] = None,
-            A_sparse: bool = False
+            A_sparse: bool = False,
+            displacement_method: Literal['neighborhood','matrix'] = 'matrix'
         ) -> None:
         super().__init__()
         assert phi_x is not None or num_control_points is not None
@@ -115,6 +116,7 @@ class BSplineField1d(torch.nn.Module):
             support_min, support_max = support_range
             dx = (support_max - support_min) / (num_control_points-3)
             origin = support_min - dx
+        self.displacement_method = displacement_method
 
         self.register_parameter('phi_x', phi_x)
         self.register_buffer('num_control_points', torch.tensor(num_control_points))
@@ -185,7 +187,12 @@ class BSplineField1d(torch.nn.Module):
         return u
 
     def forward(self, x: torch.Tensor):
-        return self.matrix_vector_displacement(x)
+        if self.displacement_method == 'neighborhood':
+            return self.displacement(x)
+        elif self.displacement_method == 'matrix':
+            return self.matrix_vector_displacement(x)
+        else:
+            raise ValueError(f'Unknown displacement method `{self.displacement_method}`')
         
 class BsplineDeformationField(torch.nn.Module):
     def __init__(self, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None, support_outside: bool = False, num_control_points: Optional[int] = None) -> None:
@@ -647,10 +654,11 @@ class BsplineTemporalIntegratedVelocityField3d(BsplineTemporalDeformationField3d
                 num_steps = ceil(torch.abs(t-final_time).item()/self.config.timedelta)
                 _times = torch.linspace(t, final_time, num_steps, device=x.device)
                 if _times.shape[0]>2:
-                    _times[1:-1] += 0.005*(torch.rand(_times.shape[0]-2, device=x.device)-0.5)
+                    r = 2*(torch.rand(_times.shape[0]-2, device=x.device)-0.5) # uniform random -1 to 1
+                    _times[1:-1] += 0.1*self.config.timedelta*r # perturb by up to 10% dt
                 for it, _t in enumerate(_times[:-1]):
                     dt = _times[it+1] - _t
-                    phi = self.weight_nn(t.view(-1,1)).view(*self.bspline_field.grid_size, 3)
+                    phi = self.weight_nn(_t.view(-1,1)).view(*self.bspline_field.grid_size, 3)
                     u = self.disp_func(x0, x1, x2, phi_x=phi)
                     x0, x1, x2 = x0 + u[:,0]*dt, x1 + u[:,1]*dt, x2 + u[:,2]*dt
                 

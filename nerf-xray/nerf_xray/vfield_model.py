@@ -74,7 +74,7 @@ class VfieldModelConfig(NerfactoModelConfig):
     camera_optimizer = None
     """Config of the camera optimizer to use"""
     disable_mixing: bool = False
-    """If True, the outputs will alternate between forward and backward canonical models"""
+    """If True, the forward and backward canonical models will alternate as opposed to combine"""
 
 class VfieldModel(Model):
     """Nerfacto model
