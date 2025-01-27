@@ -227,6 +227,27 @@ def bspline(u: torch.Tensor, i: int) -> Tensor:
         return u**3 / 6
     else:
         raise ValueError(f"Invalid B-spline index {i}")
+    
+def bspline_deriv(u: torch.Tensor, i: int) -> Tensor:
+    """Derivative of B-spline functions.
+
+    Args:
+        u (torch.Tensor): coordinate in domain
+        i (int): index of the B-spline. One of {0,1,2,3}
+
+    Returns:
+        torch.Tensor: B-spline derivative
+    """
+    if i == 0:
+        return -(1 - u)**2 / 2
+    elif i == 1:
+        return (3*u**2 - 4*u) / 2
+    elif i == 2:
+        return (-3*u**2 + 2*u + 1) / 2
+    elif i == 3:
+        return u**2 / 2
+    else:
+        raise ValueError(f"Invalid B-spline index {i}")
 
 class BSplineField3d(torch.nn.Module):
     """Cubic B-spline 3d field.
@@ -277,7 +298,7 @@ class BSplineField3d(torch.nn.Module):
         return f"BSplineField(phi_x={f.grid_size}, origin={f.origin}, spacing={f.spacing})\nfull support on {f.origin + f.spacing} to {f.origin + f.spacing*(f.grid_size-2)}\n"
 
     def displacement(
-            self, x: Tensor, y: Tensor, z: Tensor, i: int, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None
+            self, x: Tensor, y: Tensor, z: Tensor, i: int, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None, derivative: Optional[int] = None
     ) -> torch.Tensor:
         """Displacement at points x,y,z in the direction i.
 
@@ -311,14 +332,23 @@ class BSplineField3d(torch.nn.Module):
         T = torch.zeros_like(x, dtype=torch.float32)
         for l in range(4):
             ix_loc = torch.clamp(ix + l, 0, self.grid_size[0]-1)
-            s0 = bspline(u, l)
+            if derivative is None or derivative!=0:
+                s0 = bspline(u, l)
+            else:
+                s0 = bspline_deriv(u, l)
             for m in range(4):
                 iy_loc = torch.clamp(iy + m, 0, self.grid_size[1]-1)
-                s1 = bspline(v, m)
+                if derivative is None or derivative!=1:
+                    s1 = bspline(v, m)
+                else:
+                    s1 = bspline_deriv(v, m)
                 s0xs1 = s0 * s1
                 for n in range(4):
                     iz_loc = torch.clamp(iz + n, 0, self.grid_size[2]-1)
-                    s2 = bspline(w, n)
+                    if derivative is None or derivative!=2:
+                        s2 = bspline(w, n)
+                    else:
+                        s2 = bspline_deriv(w, n)
                     T += s0xs1 * s2 * phi_x[ix_loc, iy_loc, iz_loc, i]
         if not self.support_outside:
             T[ix_nan | iy_nan | iz_nan] = torch.nan
