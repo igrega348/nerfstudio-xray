@@ -350,6 +350,9 @@ class BSplineField3d(torch.nn.Module):
                     else:
                         s2 = bspline_deriv(w, n)
                     T += s0xs1 * s2 * phi_x[ix_loc, iy_loc, iz_loc, i]
+        # fix spacing
+        if derivative is not None:
+            T = T / self.spacing[derivative]
         if not self.support_outside:
             T[ix_nan | iy_nan | iz_nan] = torch.nan
         return T
