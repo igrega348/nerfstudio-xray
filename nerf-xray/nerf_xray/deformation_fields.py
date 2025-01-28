@@ -295,7 +295,11 @@ class BSplineField3d(torch.nn.Module):
 
     def __repr__(self) -> str:
         f = self
-        return f"BSplineField(phi_x={f.grid_size}, origin={f.origin}, spacing={f.spacing})\nfull support on {f.origin + f.spacing} to {f.origin + f.spacing*(f.grid_size-2)}\n"
+        if self.phi_x is None:
+            phix = 'None'
+        else:
+            phix = self.phi_x.shape
+        return f"BSplineField(phi_x={phix}, origin={f.origin}, spacing={f.spacing})\nfull support on {f.origin + f.spacing} to {f.origin + f.spacing*(f.grid_size-2)}\n"
 
     def displacement(
             self, x: Tensor, y: Tensor, z: Tensor, i: int, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None, derivative: Optional[int] = None
