@@ -35,6 +35,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 from nerf_xray.xray_datamanager import XrayDataManagerConfig
 from nerf_xray.vfield_model import VfieldModel, VfieldModelConfig
+from .objects import Object
 
 
 @dataclass
@@ -194,33 +195,67 @@ class VfieldPipeline(VanillaPipeline):
         self.train()
         return metrics_dict
     
-    def calculate_density_loss(self, sampling: str = 'random', time: Optional[float] = None) -> Dict[str, Any]:
+    def calculate_density_loss(self, sampling: str = 'random', time: Optional[float] = None, target: Optional[Object] = None) -> Dict[str, Any]:
         if sampling=='grid':
             pos = torch.linspace(-1, 1, 200, device=self.device) # scene box goes between -1 and 1 
             pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
         elif sampling=='random':
             pos = 2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0
-        assert time in [0.0, 1.0], "Time must be 0.0 or 1.0"
         pred_density = self.model.get_density_from_pos(pos, time=time).squeeze()
-        obj = self.datamanager.object if time==0.0 else self.datamanager.final_object
+        if target is None:
+            assert time in [0.0, 1.0], "Time must be 0.0 or 1.0"
+            obj = self.datamanager.object if time==0.0 else self.datamanager.final_object
+        else:
+            obj = target
         density = obj.density(pos).squeeze() # density between -1 and 1
         
-        x = density
-        y = pred_density
+        normed_correlation = self.calculate_normed_correlation(x=density, y=pred_density)
+        return {
+            'normed_correlation': normed_correlation
+            }
 
+    def get_eval_density_loss(self, sampling: str = 'random', time: Optional[float] = None, target: Optional[Object] = None, npoints: Optional[int] = None) -> Dict[str, Any]:
+        if sampling=='grid':
+            if npoints is None: 
+                npoints = 200
+            pos = torch.linspace(-1, 1, npoints, device=self.device) # scene box goes between -1 and 1 
+            pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
+        elif sampling=='random':
+            if npoints is None:
+                npoints = self.config.datamanager.train_num_rays_per_batch*32
+            pos = 2*torch.rand((npoints, 3), device=self.device) - 1.0
+
+        pred_density_f = self.model.field_f.get_density_from_pos(pos, deformation_field=lambda x,t: self.model.deformation_field(x,t,0.0), time=time).squeeze()
+        pred_density_b = self.model.field_b.get_density_from_pos(pos, deformation_field=lambda x,t: self.model.deformation_field(x,t,1.0), time=time).squeeze()
+
+        if target is None:
+            assert time in [0.0, 1.0], "Time must be 0.0 or 1.0"
+            obj = self.datamanager.object if time==0.0 else self.datamanager.final_object
+        else:
+            obj = target
+
+        density = obj.density(pos).squeeze() # density between -1 and 1
+        
+        normed_correlation_f = self.calculate_normed_correlation(x=density, y=pred_density_f)
+        normed_correlation_b = self.calculate_normed_correlation(x=density, y=pred_density_b)
+        return {
+            'normed_correlation_f': normed_correlation_f,
+            'normed_correlation_b': normed_correlation_b,
+            }
+
+    @staticmethod
+    def calculate_normed_correlation(x, y):
         mux = x.mean()
         muy = y.mean()
         dx = x-mux
         dy = y-muy
         normed_correlation = torch.sum(dx*dy) / torch.sqrt(dx.pow(2).sum() * dy.pow(2).sum())
-        return {
-            'normed_correlation': normed_correlation
-            }
+        return normed_correlation
 
     def get_flat_field_penalty(self):
         return -self.config.flat_field_loss_multiplier*self.model.flat_field.phi_x.mean()
 
-    def get_fields_mismatch_penalty(self):
+    def get_fields_mismatch_penalty(self, reduction: Literal['mean','sum','none'] = 'sum', npoints: Optional[int] = None):
         if self.model.config.direction != 'both':
             return torch.zeros(1, device=self.device)
         # sample time
@@ -231,14 +266,23 @@ class VfieldPipeline(VanillaPipeline):
         # cost = (alphas * (1-alphas)).detach() # should we detach or no?
         cost = torch.sigmoid(50*(alphas*(1-alphas)-0.2))#.detach()
         diffs = []
+        if npoints is None:
+            npoints = self.config.datamanager.train_num_rays_per_batch*32
         for i,t in enumerate(times):
-            pos = (2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0) * 0.7 # +0.7 to -0.7
+            pos = (2*torch.rand((npoints, 3), device=self.device) - 1.0) * 0.7 # +0.7 to -0.7
             diff = self.model.get_density_difference(pos, t.item()).pow(2).mean().view(1)
             if self.training:
                 diff = diff * cost[i]
             diffs.append(diff)
         if len(diffs)>0:
-            loss = torch.cat(diffs).sum()
+            if reduction=='sum':
+                loss = torch.cat(diffs).sum()
+            elif reduction=='mean':
+                loss = torch.cat(diffs).mean()
+            elif reduction=='none':
+                loss = torch.cat(diffs)
+            else:
+                raise ValueError(f'`reduction` {reduction} not recognized')
         else:
             loss = t.new_zeros(1)
         return loss
@@ -285,7 +329,8 @@ class VfieldPipeline(VanillaPipeline):
         engine='cv', 
         resolution=500,
         rhomax=1.0,
-        time=0.0
+        time=0.0,
+        which: Optional[Literal['forward','backward','mixed']] = None
     ):
         a = torch.linspace(-1, 1, resolution, device=self.device) # scene box will map to 0-1
         b = torch.linspace(-1, 1, resolution, device=self.device) # scene box will map to 0-1
@@ -299,7 +344,7 @@ class VfieldPipeline(VanillaPipeline):
             pos = torch.stack([A, C, B], dim=-1)
         if target in ['field', 'both']:
             with torch.no_grad():
-                pred_density = self._model.get_density_from_pos(pos, time=time).squeeze()
+                pred_density = self._model.get_density_from_pos(pos, time=time, which=which).squeeze()
                 pred_density = pred_density.cpu().numpy() / rhomax
         if target in ['datamanager', 'both']:
             pos_shape = pos.shape

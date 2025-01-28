@@ -39,7 +39,9 @@ def main(
     out_path: Optional[Path] = None
 ):
     old_df, key_map = load_def_field(ckpt_path, old_resolution, old_nn_width)
+    print(f'Old timedelta: {old_df.config.timedelta}')
     new_df = make_def_field(new_resolution, new_nn_width)
+    print(f'New timedelta: {new_df.config.timedelta}')
     # send to cuda
     old_df = old_df.to('cuda')
     new_df = new_df.to('cuda')

@@ -5,6 +5,7 @@ Currently this subclasses the Nerfacto model. Consider subclassing from the base
 """
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Tuple, Type, Union, Optional
+from math import ceil
 
 import numpy as np
 import torch
@@ -356,7 +357,7 @@ class VfieldModel(Model):
         return field_outputs
 
     def get_density_from_pos(
-        self, positions: Tensor, time: Optional[Union[Tensor, float]] = None
+        self, positions: Tensor, time: Optional[Union[Tensor, float]] = None, which: Optional[Literal['forward','backward','mixed']] = None
     ) -> Tensor:
         if time is None:
             time = positions.new_zeros(1)
@@ -364,14 +365,56 @@ class VfieldModel(Model):
             time = positions.new_ones(1)*time
         else:
             raise ValueError(f'`time` of type {type(time)}')
-        density_f = self.field_f.get_density_from_pos(positions, deformation_field=lambda x,t: self.deformation_field(x,t,0.0), time=time)
-        if density_f is not None:
-            density_f = density_f.squeeze()
+        if which!='backward':
+            density_f = self.field_f.get_density_from_pos(positions, deformation_field=lambda x,t: self.deformation_field(x,t,0.0), time=time)
+            if density_f is not None:
+                density_f = density_f.squeeze()
+                if which=='forward':
+                    return density_f
         density_b = self.field_b.get_density_from_pos(positions, deformation_field=lambda x,t: self.deformation_field(x,t,1.0), time=time)
         if density_b is not None:
             density_b = density_b.squeeze()
-        density = self.mix_two_fields(density_f, density_b, time)
+            if which=='backward':
+                return density_b
+        # density = self.mix_two_fields(density_f, density_b, time)
+        assert density_f is not None and density_b is not None
+        density = self.divergence_mixing(positions, time, density_f, density_b)
         return density
+
+    @staticmethod
+    def calculate_divergence(u:Tensor, pos: Tensor) -> Tensor:
+        duxdx = torch.autograd.grad(u[...,0], pos, grad_outputs=torch.ones_like(u[...,0]), retain_graph=True)[0][:,0]
+        duydy = torch.autograd.grad(u[...,1], pos, grad_outputs=torch.ones_like(u[...,1]), retain_graph=True)[0][:,1]
+        duzdz = torch.autograd.grad(u[...,2], pos, grad_outputs=torch.ones_like(u[...,2]))[0][:,2]
+        return duxdx + duydy + duzdz
+
+    def get_divs(self, x: Tensor, t: float, final_time: float):
+        divs = torch.zeros(x.shape[0])
+        num_steps = ceil(abs(t-final_time)/self.deformation_field.config.timedelta)
+        _times = torch.linspace(t, final_time, num_steps, device=x.device)
+        if _times.shape[0]>2:
+            r = 2*(torch.rand(_times.shape[0]-2, device=x.device)-0.5) # uniform random -1 to 1
+            _times[1:-1] += 0.1*self.deformation_field.config.timedelta*r # perturb by up to 10% dt
+        for it, _t in enumerate(_times[:-1]):
+            dt = _times[it+1] - _t
+            phi = self.deformation_field.weight_nn(_t.view(-1,1)).view(*self.deformation_field.bspline_field.grid_size, 3)
+            u = self.deformation_field.disp_func(x[:,0], x[:,1], x[:,2], phi_x=phi)
+            div = self.calculate_divergence(u, x)
+            divs += div*dt
+            x = x + u.detach()*dt
+        return divs
+
+    def divergence_mixing(self, positions: Tensor, time: Tensor, density_f: Tensor, density_b: Tensor):
+        # density_f is for canonical volume at t=0
+        assert len(time.unique())==1
+        positions.requires_grad = True
+        
+        # div_0 = self.get_divs(positions, time[0].item(), 0.0)
+        div_1 = self.get_divs(positions, time[0].item(), 1.0)
+        new_density = density_f.clone()
+        new_density[div_1>0] = density_b[div_1>0]
+        return new_density
+
 
     def get_density_difference(
         self, positions: Tensor, time: Optional[Union[Tensor, float]] = None
