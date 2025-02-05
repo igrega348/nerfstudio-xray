@@ -343,8 +343,12 @@ class VfieldPipeline(VanillaPipeline):
         elif plane == 'xz':
             pos = torch.stack([A, C, B], dim=-1)
         if target in ['field', 'both']:
-            with torch.no_grad():
+            if which=='mixed': # have to propagate gradients
                 pred_density = self._model.get_density_from_pos(pos, time=time, which=which).squeeze()
+                pred_density = pred_density.detach().cpu().numpy() / rhomax
+            else:
+                with torch.no_grad():
+                    pred_density = self._model.get_density_from_pos(pos, time=time, which=which).squeeze()
                 pred_density = pred_density.cpu().numpy() / rhomax
         if target in ['datamanager', 'both']:
             pos_shape = pos.shape

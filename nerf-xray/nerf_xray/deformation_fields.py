@@ -461,11 +461,13 @@ class BSplineField3d(torch.nn.Module):
         return A
 
     def matrix_vector_displacement(self, x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, phi_x: Optional[torch.Tensor] = None) -> torch.Tensor:
-        A = self.get_A_matrix(x, y, z)
+        assert x.shape==y.shape==z.shape
+        shape = x.shape
+        A = self.get_A_matrix(x.view(-1), y.view(-1), z.view(-1))
         if phi_x is None:
             phi_x = self.phi_x
         u = A@phi_x.view(-1,3)
-        return u
+        return u.view(*shape, 3)
 
     def mean_disp(self, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None):
         if phi_x is None:

@@ -6,6 +6,7 @@ Currently this subclasses the Nerfacto model. Consider subclassing from the base
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Tuple, Type, Union, Optional
 from math import ceil
+from contextlib import contextmanager
 
 import numpy as np
 import torch
@@ -332,29 +333,33 @@ class VfieldModel(Model):
         alphas = torch.nn.functional.sigmoid(alphas)
         return alphas
 
-    def mix_two_fields(self, field_f_outputs: Union[Dict, Tensor, None], field_b_outputs: Union[Dict, Tensor, None], times: Tensor) -> Union[Dict, Tensor]:
-        if field_f_outputs is None:
-            return field_b_outputs
-        elif field_b_outputs is None:
-            return field_f_outputs
+    def mix_two_fields(self, field_0_outputs: Union[Dict, Tensor, None], field_1_outputs: Union[Dict, Tensor, None], times: Tensor) -> Union[Dict, Tensor]:
+        if field_0_outputs is None:
+            return field_1_outputs
+        elif field_1_outputs is None:
+            return field_0_outputs
 
         if self.config.disable_mixing and self.training:
             # p = torch.rand(1).item()
             if self.step%10<5:
-                return field_f_outputs
+                return field_0_outputs
             else:
-                return field_b_outputs
+                return field_1_outputs
 
         alphas = self.field_weighing(times.reshape(-1)).view(times.shape)
         alphas = torch.nn.functional.sigmoid(alphas)
         # alphas = float(torch.rand(1)<0.5) # sample one or the other
-        if isinstance(field_f_outputs, Tensor):
-            field_outputs = (1-alphas) * field_f_outputs + alphas * field_b_outputs
-        elif isinstance(field_f_outputs, dict):
+        if isinstance(field_0_outputs, Tensor):
+            field_outputs = (1-alphas) * field_0_outputs + alphas * field_1_outputs
+        elif isinstance(field_0_outputs, dict):
             field_outputs = {}
-            for key in field_f_outputs:
-                field_outputs[key] = (1-alphas) * field_f_outputs[key] + alphas * field_b_outputs[key]
+            for key in field_0_outputs:
+                field_outputs[key] = (1-alphas) * field_0_outputs[key] + alphas * field_1_outputs[key]
         return field_outputs
+
+    @contextmanager
+    def empty_context_manager(self):
+        yield
 
     def get_density_from_pos(
         self, positions: Tensor, time: Optional[Union[Tensor, float]] = None, which: Optional[Literal['forward','backward','mixed']] = None
@@ -365,20 +370,27 @@ class VfieldModel(Model):
             time = positions.new_ones(1)*time
         else:
             raise ValueError(f'`time` of type {type(time)}')
-        if which!='backward':
-            density_f = self.field_f.get_density_from_pos(positions, deformation_field=lambda x,t: self.deformation_field(x,t,0.0), time=time)
-            if density_f is not None:
-                density_f = density_f.squeeze()
-                if which=='forward':
-                    return density_f
-        density_b = self.field_b.get_density_from_pos(positions, deformation_field=lambda x,t: self.deformation_field(x,t,1.0), time=time)
-        if density_b is not None:
-            density_b = density_b.squeeze()
-            if which=='backward':
-                return density_b
+        if self.training:
+            cm = self.empty_context_manager
+        else:
+            cm = torch.no_grad
+
+        with cm():
+            if which!='backward':
+                density_0 = self.field_f.get_density_from_pos(positions, deformation_field=lambda x,t: self.deformation_field(x,t,0.0), time=time)
+                if density_0 is not None:
+                    density_0 = density_0.squeeze()
+            if which!='forward':
+                density_1 = self.field_b.get_density_from_pos(positions, deformation_field=lambda x,t: self.deformation_field(x,t,1.0), time=time)
+                if density_1 is not None:
+                    density_1 = density_1.squeeze()
+        if which=='forward':
+            return density_0
+        if which=='backward':
+            return density_1
         # density = self.mix_two_fields(density_f, density_b, time)
-        assert density_f is not None and density_b is not None
-        density = self.divergence_mixing(positions, time, density_f, density_b)
+        assert density_0 is not None and density_1 is not None
+        density = self.divergence_mixing(positions, time, density_0, density_1)
         return density
 
     @staticmethod
@@ -388,31 +400,34 @@ class VfieldModel(Model):
         duzdz = torch.autograd.grad(u[...,2], pos, grad_outputs=torch.ones_like(u[...,2]))[0][:,2]
         return duxdx + duydy + duzdz
 
-    def get_divs(self, x: Tensor, t: float, final_time: float):
-        divs = torch.zeros(x.shape[0])
+    def get_divs(self, pos: Tensor, t: float, final_time: float):
+        shape = pos.shape
+        pos = pos.view(-1,3)
+        divs = pos.new_zeros(pos.shape[0])
         num_steps = ceil(abs(t-final_time)/self.deformation_field.config.timedelta)
-        _times = torch.linspace(t, final_time, num_steps, device=x.device)
+        _times = torch.linspace(t, final_time, num_steps, device=pos.device)
         if _times.shape[0]>2:
-            r = 2*(torch.rand(_times.shape[0]-2, device=x.device)-0.5) # uniform random -1 to 1
+            r = 2*(torch.rand(_times.shape[0]-2, device=pos.device)-0.5) # uniform random -1 to 1
             _times[1:-1] += 0.1*self.deformation_field.config.timedelta*r # perturb by up to 10% dt
         for it, _t in enumerate(_times[:-1]):
             dt = _times[it+1] - _t
             phi = self.deformation_field.weight_nn(_t.view(-1,1)).view(*self.deformation_field.bspline_field.grid_size, 3)
-            u = self.deformation_field.disp_func(x[:,0], x[:,1], x[:,2], phi_x=phi)
-            div = self.calculate_divergence(u, x)
+            u = self.deformation_field.disp_func(pos[...,0], pos[...,1], pos[...,2], phi_x=phi)
+            div = self.calculate_divergence(u, pos)
             divs += div*dt
-            x = x + u.detach()*dt
-        return divs
+            pos = pos + u.detach()*dt
+        return divs.view(shape[:-1])
 
-    def divergence_mixing(self, positions: Tensor, time: Tensor, density_f: Tensor, density_b: Tensor):
+    def divergence_mixing(self, positions: Tensor, time: Tensor, density_0: Tensor, density_1: Tensor):
         # density_f is for canonical volume at t=0
         assert len(time.unique())==1
         positions.requires_grad = True
         
-        # div_0 = self.get_divs(positions, time[0].item(), 0.0)
+        div_0 = self.get_divs(positions, time[0].item(), 0.0)
         div_1 = self.get_divs(positions, time[0].item(), 1.0)
-        new_density = density_f.clone()
-        new_density[div_1>0] = density_b[div_1>0]
+        w = torch.stack([div_0, div_1], dim=-1)
+        w = torch.nn.functional.softmax(5*w, dim=-1)
+        new_density = w[...,0] * density_0 + w[...,1] * density_1
         return new_density
 
 
