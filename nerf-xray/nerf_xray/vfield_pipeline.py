@@ -201,7 +201,12 @@ class VfieldPipeline(VanillaPipeline):
             pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
         elif sampling=='random':
             pos = 2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0
-        pred_density = self.model.get_density_from_pos(pos, time=time).squeeze()
+        if time==0.0:
+            pred_density = self.model.get_density_from_pos(pos, time=time, which='backward').squeeze()
+        elif time==1.0:
+            pred_density = self.model.get_density_from_pos(pos, time=time, which='forward').squeeze()
+        else:
+            raise ValueError(f'time can only be 0 or 1')
         if target is None:
             assert time in [0.0, 1.0], "Time must be 0.0 or 1.0"
             obj = self.datamanager.object if time==0.0 else self.datamanager.final_object
