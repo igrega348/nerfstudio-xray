@@ -564,6 +564,10 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
 
     config: BsplineTemporalDeformationField3dConfig
 
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
     def __init__(
             self, 
             config: BsplineTemporalDeformationField3dConfig,

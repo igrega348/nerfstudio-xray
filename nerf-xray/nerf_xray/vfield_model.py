@@ -339,13 +339,6 @@ class VfieldModel(Model):
         elif field_1_outputs is None:
             return field_0_outputs
 
-        if self.config.disable_mixing and self.training:
-            # p = torch.rand(1).item()
-            if self.step%10<5:
-                return field_0_outputs
-            else:
-                return field_1_outputs
-
         alphas = self.field_weighing(times.reshape(-1)).view(times.shape)
         alphas = torch.nn.functional.sigmoid(alphas)
         # alphas = float(torch.rand(1)<0.5) # sample one or the other
@@ -451,9 +444,17 @@ class VfieldModel(Model):
         # apply the camera optimizer pose tweaks
         ray_samples: RaySamples
         ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
-        field_f_outputs = self.field_f.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,0.0))
-        field_b_outputs = self.field_b.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,1.0))
-        field_outputs = self.mix_two_fields(field_f_outputs, field_b_outputs, ray_samples.times)
+        # do the mixing now
+        if self.config.disable_mixing and self.training:
+            if self.step%10<5:
+                field_outputs = self.field_f.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,0.0))
+            else:
+                field_outputs = self.field_b.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,1.0))
+        else:
+            field_f_outputs = self.field_f.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,0.0))
+            field_b_outputs = self.field_b.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,1.0))
+            
+            field_outputs = self.mix_two_fields(field_f_outputs, field_b_outputs, ray_samples.times)
         if self.config.use_gradient_scaling:
             field_outputs = scale_gradients_by_distance_squared(field_outputs, ray_samples)
 
