@@ -121,10 +121,7 @@ class VfieldPipeline(VanillaPipeline):
         metrics_dict.update(
             {'flat_field': self.model.flat_field.phi_x.mean()}
         )
-        if self.datamanager.object is not None:
-            metrics_dict.update({k+'_0':v for k,v in self.calculate_density_loss(time=0.0).items()})
-        if hasattr(self.datamanager, 'final_object') and self.datamanager.final_object is not None:
-            metrics_dict.update({k+'_1':v for k,v in self.calculate_density_loss(time=1.0).items()})
+        metrics_dict.update(self.calculate_density_loss())
         metrics_dict['mixing_divergence'] = self.model.get_mixing_divergence()
         metrics_dict.update({'mismatch_penalty':self.get_fields_mismatch_penalty()})
 
@@ -195,26 +192,19 @@ class VfieldPipeline(VanillaPipeline):
         self.train()
         return metrics_dict
     
-    def calculate_density_loss(self, sampling: str = 'random', time: Optional[float] = None, target: Optional[Object] = None) -> Dict[str, Any]:
+    def calculate_density_loss(self, sampling: str = 'random') -> Dict[str, Any]:
         if sampling=='grid':
-            pos = torch.linspace(-1, 1, 200, device=self.device) # scene box goes between -1 and 1 
+            pos = torch.linspace(-0.7, 0.7, 200, device=self.device) # scene box goes between -1 and 1 
             pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
         elif sampling=='random':
-            pos = 2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0
-        if time==0.0:
-            pred_density = self.model.get_density_from_pos(pos, time=time, which='backward').squeeze()
-        elif time==1.0:
-            pred_density = self.model.get_density_from_pos(pos, time=time, which='forward').squeeze()
-        else:
-            raise ValueError(f'time can only be 0 or 1')
-        if target is None:
-            assert time in [0.0, 1.0], "Time must be 0.0 or 1.0"
-            obj = self.datamanager.object if time==0.0 else self.datamanager.final_object
-        else:
-            obj = target
-        density = obj.density(pos).squeeze() # density between -1 and 1
+            pos = (torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 0.5) * 1.4
+        density_0 = self.model.get_density_from_pos(pos, time=0.0, which='backward').squeeze() # points sampled at 0.0
+        density_1 = self.model.get_density_from_pos(pos, time=0.0, which='forward').squeeze()
+        # pos1 = self.model.deformation_field(pos, pos.new_zeros(1), 1.0)
+        # density_0 = self.datamanager.object.density(pos).squeeze()
+        # density_1 = self.datamanager.final_object.density(pos1).squeeze()
         
-        normed_correlation = self.calculate_normed_correlation(x=density, y=pred_density)
+        normed_correlation = self.calculate_normed_correlation(x=density_0, y=density_1)
         return {
             'normed_correlation': normed_correlation
             }
@@ -314,14 +304,8 @@ class VfieldPipeline(VanillaPipeline):
         
         if self.config.volumetric_supervision and step>self.config.volumetric_supervision_start_step:
             # provide supervision to visual training. Use cross-corelation loss
-            assert self.datamanager.object is not None
-            time = 0.0
-            density_loss = self.calculate_density_loss(sampling='random', time=time)
-            loss_dict[f'volumetric_loss_{time:.0f}'] = self.config.volumetric_supervision_coefficient*(1-density_loss['normed_correlation'])
-            if hasattr(self.datamanager, 'final_object') and self.datamanager.final_object is not None:
-                time = 1.0
-                density_loss = self.calculate_density_loss(sampling='random', time=time)
-                loss_dict[f'volumetric_loss_{time:.0f}'] = self.config.volumetric_supervision_coefficient*(1-density_loss['normed_correlation'])
+            density_loss = self.calculate_density_loss(sampling='random')
+            loss_dict[f'volumetric_loss'] = self.config.volumetric_supervision_coefficient*(1-density_loss['normed_correlation'])
 
         return model_outputs, loss_dict, metrics_dict
     

@@ -9,8 +9,6 @@ from typing import Dict, List, Literal, Tuple, Type, Union
 import numpy as np
 import torch
 from jaxtyping import Float, Shaped
-from nerfstudio.cameras.camera_optimizers import (CameraOptimizer,
-                                                  CameraOptimizerConfig)
 from nerfstudio.cameras.cameras import Cameras
 from nerfstudio.cameras.rays import RayBundle, RaySamples
 from nerfstudio.engine.callbacks import (TrainingCallback,
@@ -120,9 +118,7 @@ class TemplateModel(Model):
         if not self.config.train_deformation_field and self.deformation_field is not None:
             self.deformation_field.requires_grad_(False)
 
-        self.camera_optimizer: CameraOptimizer = self.config.camera_optimizer.setup(
-            num_cameras=self.num_train_data, device="cpu"
-        )
+        self.camera_optimizer = None
         self.density_fns = []
         num_prop_nets = self.config.num_proposal_iterations
         # Build the proposal network(s)
@@ -226,7 +222,6 @@ class TemplateModel(Model):
         # trainable background color
         if self.config.flat_field_trainable:
             param_groups["flat_field"] = [self.flat_field]
-        self.camera_optimizer.get_param_groups(param_groups=param_groups)
         return param_groups
 
     def get_training_callbacks(
@@ -278,9 +273,6 @@ class TemplateModel(Model):
         return self.get_outputs(ray_bundle)
 
     def get_outputs(self, ray_bundle: RayBundle):
-        # apply the camera optimizer pose tweaks
-        if self.training:
-            self.camera_optimizer.apply_to_raybundle(ray_bundle)
         ray_samples: RaySamples
         ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
         field_outputs = self.field.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=self.deformation_field)
@@ -342,7 +334,6 @@ class TemplateModel(Model):
         if self.training:
             metrics_dict["distortion"] = distortion_loss(outputs["weights_list"], outputs["ray_samples_list"])
 
-        self.camera_optimizer.get_metrics_dict(metrics_dict)
         if self.deformation_field is not None:
             metrics_dict["mean_disp"] = self.deformation_field.mean_disp()
             metrics_dict['max_disp'] = self.deformation_field.max_disp()
@@ -374,8 +365,6 @@ class TemplateModel(Model):
                 loss_dict["pred_normal_loss"] = self.config.pred_normal_loss_mult * torch.mean(
                     outputs["rendered_pred_normal_loss"]
                 )
-            # Add loss from camera optimizer
-            self.camera_optimizer.get_loss_dict(loss_dict)
         return loss_dict
 
     def get_image_metrics_and_images(
