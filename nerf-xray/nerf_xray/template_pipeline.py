@@ -204,12 +204,16 @@ class TemplatePipeline(VanillaPipeline):
         self.train()
         return metrics_dict
     
-    def calculate_density_loss(self, sampling: str = 'random', time: Optional[float] = None) -> Dict[str, Any]:
+    def calculate_density_loss(self, sampling: str = 'random', time: Optional[float] = None, resolution: Optional[int] = None) -> Dict[str, Any]:
         if sampling=='grid':
-            pos = torch.linspace(-1, 1, 200, device=self.device) # scene box goes between -1 and 1 
+            if resolution is None:
+                resolution = 250
+            pos = torch.linspace(-1, 1, resolution, device=self.device) # scene box goes between -1 and 1 
             pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
         elif sampling=='random':
-            pos = 2*torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 1.0
+            if resolution is None:
+                resolution = self.config.datamanager.train_num_rays_per_batch*32
+            pos = 2*torch.rand((resolution, 3), device=self.device) - 1.0
         if time is not None:
             assert time in [0.0, 1.0], "Time must be 0.0 or 1.0"
             object = self.datamanager.object if time==0.0 else self.datamanager.final_object
