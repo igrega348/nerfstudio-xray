@@ -53,6 +53,14 @@ class Object:
             return object_map[d["type"]].from_dict(d)
         else:
             raise ValueError(f"Unknown object type: {d['type']}")
+        
+    @abstractmethod
+    def to_dict(self) -> dict:
+        pass
+    
+    def to_yaml(self, path: Union[str, Path]):
+        path = Path(path)
+        path.write_text(yaml.dump(self.to_dict()))
 
 class ObjectCollection(Object):
     def __init__(self, objects: Iterable[Object]):
