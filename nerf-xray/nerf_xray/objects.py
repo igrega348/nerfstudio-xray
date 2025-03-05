@@ -198,15 +198,17 @@ class UnitCell(Object):
         )
     
     def to_dict(self) -> dict:
+        minlims = self.min_lims.flatten().tolist()
+        maxlims = self.max_lims.flatten().tolist()
         return {
             "type": "unit_cell",
             "objects": self.objects.to_dict(),
-            "xmin": self.min_lims.flatten()[0],
-            "ymin": self.min_lims.flatten()[1],
-            "zmin": self.min_lims.flatten()[2],
-            "xmax": self.max_lims.flatten()[0],
-            "ymax": self.max_lims.flatten()[1],
-            "zmax": self.max_lims.flatten()[2],
+            "xmin": minlims[0],
+            "xmax": maxlims[0],
+            "ymin": minlims[1],
+            "ymax": maxlims[1],
+            "zmin": minlims[2],
+            "zmax": maxlims[2],
         }
 
     def density(self, pos: torch.Tensor):
@@ -236,15 +238,17 @@ class TessellatedObjColl(Object):
         )
     
     def to_dict(self) -> dict:
+        minlims = self.min_lims.flatten().tolist()
+        maxlims = self.max_lims.flatten().tolist()
         return {
             "type": "tessellated_obj_coll",
             "uc": self.uc.to_dict(),
-            "xmin": self.min_lims.flatten()[0],
-            "ymin": self.min_lims.flatten()[1],
-            "zmin": self.min_lims.flatten()[2],
-            "xmax": self.max_lims.flatten()[0],
-            "ymax": self.max_lims.flatten()[1],
-            "zmax": self.max_lims.flatten()[2],
+            "xmin": minlims[0],
+            "xmax": maxlims[0],
+            "ymin": minlims[1],
+            "ymax": maxlims[1],
+            "zmin": minlims[2],
+            "zmax": maxlims[2],
         }
 
     def remap(self, pos: torch.Tensor):
