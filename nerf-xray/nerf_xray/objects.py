@@ -39,42 +39,36 @@ class Object:
     
     @staticmethod
     def from_dict(d: dict) -> "Object":
-        if d["type"] == "sphere":
-            return Sphere(torch.tensor(d["center"]), d["radius"], d.get("rho", 1.0))
-        if d["type"] == "cube":
-            return Cube(torch.tensor(d["center"]), d["side"], d.get("rho", 1.0))
-        if d["type"] == "cylinder":
-            return Cylinder(torch.tensor(d["p0"]), torch.tensor(d["p1"]), d["radius"], d.get("rho", 1.0))
-        if d["type"] == "object_collection":
-            return ObjectCollection(Object.from_dict(o) for o in d["objects"])
-        if d['type'] == 'unit_cell':
-            return UnitCell(
-                objects=Object.from_dict(d['objects']), 
-                min_lims=torch.tensor([d['xmin'], d['ymin'], d['zmin']]), 
-                max_lims=torch.tensor([d['xmax'], d['ymax'], d['zmax']])
-            )
-        if d['type'] == 'tessellated_obj_coll':
-            return TessellatedObjColl(
-                uc=Object.from_dict(d['uc']),
-                min_lims=torch.tensor([d['xmin'], d['ymin'], d['zmin']]),
-                max_lims=torch.tensor([d['xmax'], d['ymax'], d['zmax']])
-            )
-        if d['type'] == 'box':
-            return Box(d['center'], d['sides'], d.get("rho", 1.0))
-        if d['type'] == 'parallelepiped':
-            return Parallelepiped(
-                torch.tensor(d['origin']),
-                torch.tensor(d['v1']),
-                torch.tensor(d['v2']),
-                torch.tensor(d['v3']),
-                d.get("rho", 1.0)
-            )
-        raise ValueError(f"Unknown object type: {d['type']}")
+        object_map = {
+            'sphere': Sphere,
+            'cube': Cube,
+            'cylinder': Cylinder,
+            'object_collection': ObjectCollection,
+            'unit_cell': UnitCell,
+            'tessellated_obj_coll': TessellatedObjColl,
+            'box': Box,
+            'parallelepiped': Parallelepiped
+        }
+        if d["type"] in object_map:
+            return object_map[d["type"]].from_dict(d)
+        else:
+            raise ValueError(f"Unknown object type: {d['type']}")
 
 class ObjectCollection(Object):
     def __init__(self, objects: Iterable[Object]):
         self.objects = list(objects)
         self.max_density = max(obj.max_density for obj in self.objects)
+
+    @staticmethod
+    def from_dict(d: dict) -> "ObjectCollection":
+        assert d["type"] == "object_collection"
+        return ObjectCollection(Object.from_dict(o) for o in d["objects"])
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "object_collection",
+            "objects": [obj.to_dict() for obj in self.objects],
+        }
 
     def density(self, pos: torch.Tensor) -> torch.Tensor:
         # sum densities of all objects clipped between 0 and 1
@@ -94,6 +88,19 @@ class Sphere(Object):
         self.rho = rho
         self.max_density = rho
 
+    @staticmethod
+    def from_dict(d: dict) -> "Sphere":
+        assert d["type"] == "sphere"
+        return Sphere(torch.tensor(d["center"]), d["radius"], d.get("rho", 1.0))
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "sphere",
+            "center": self.center.tolist(),
+            "radius": self.radius,
+            "rho": self.rho,
+        }
+
     def density(self, pos: torch.Tensor):
         r2 = torch.sum((pos - self.center.to(pos.device))**2, dim=-1)
         rho = pos.new_zeros(r2.size())
@@ -107,6 +114,19 @@ class Cube(Object):
         self.center = center
         self.rho = rho
         self.max_density = rho
+
+    @staticmethod
+    def from_dict(d: dict) -> "Cube":
+        assert d["type"] == "cube"
+        return Cube(torch.tensor(d["center"]), d["side"], d.get("rho", 1.0))
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "cube",
+            "center": self.center.tolist(),
+            "side": self.side,
+            "rho": self.rho,
+        }
 
     def density(self, pos: torch.Tensor):
         half_side = self.side / 2
@@ -124,6 +144,20 @@ class Cylinder(Object):
         self.p1 = p1
         self.rho = rho
         self.max_density = rho
+
+    @staticmethod
+    def from_dict(d: dict) -> "Cylinder":
+        assert d["type"] == "cylinder"
+        return Cylinder(torch.tensor(d["p0"]), torch.tensor(d["p1"]), d["radius"], d.get("rho", 1.0))
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "cylinder",
+            "p0": self.p0.tolist(),
+            "p1": self.p1.tolist(),
+            "radius": self.radius,
+            "rho": self.rho,
+        }
 
     def density(self, pos: torch.Tensor):
         p0 = self.p0.to(pos.device)
@@ -146,6 +180,27 @@ class UnitCell(Object):
         self.max_lims = max_lims.reshape(1,3)
         self.max_density = objects.max_density
 
+    @staticmethod
+    def from_dict(d: dict) -> "UnitCell":
+        assert d["type"] == "unit_cell"
+        return UnitCell(
+            objects=Object.from_dict(d["objects"]), 
+            min_lims=torch.tensor([d["xmin"], d["ymin"], d["zmin"]]), 
+            max_lims=torch.tensor([d["xmax"], d["ymax"], d["zmax"]])
+        )
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "unit_cell",
+            "objects": self.objects.to_dict(),
+            "xmin": self.min_lims[0],
+            "ymin": self.min_lims[1],
+            "zmin": self.min_lims[2],
+            "xmax": self.max_lims[0],
+            "ymax": self.max_lims[1],
+            "zmax": self.max_lims[2],
+        }
+
     def density(self, pos: torch.Tensor):
         assert pos.ndim == 2 and pos.size(1) == 3, f"Expected (N, 3) tensor, got {pos.size()}"
         rho = pos.new_zeros(pos.size(0))
@@ -162,6 +217,27 @@ class TessellatedObjColl(Object):
         self.min_lims = min_lims.reshape(1,3)  # Minimum limits of the bounding box
         self.max_lims = max_lims.reshape(1,3)  # Maximum limits of the bounding box
         self.max_density = uc.max_density
+
+    @staticmethod
+    def from_dict(d: dict) -> "TessellatedObjColl":
+        assert d["type"] == "tessellated_obj_coll"
+        return TessellatedObjColl(
+            uc=Object.from_dict(d["uc"]),
+            min_lims=torch.tensor([d["xmin"], d["ymin"], d["zmin"]]),
+            max_lims=torch.tensor([d["xmax"], d["ymax"], d["zmax"]])
+        )
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "tessellated_obj_coll",
+            "uc": self.uc.to_dict(),
+            "xmin": self.min_lims[0],
+            "ymin": self.min_lims[1],
+            "zmin": self.min_lims[2],
+            "xmax": self.max_lims[0],
+            "ymax": self.max_lims[1],
+            "zmax": self.max_lims[2],
+        }
 
     def remap(self, pos: torch.Tensor):
         dd = (self.uc.max_lims - self.uc.min_lims).to(pos) # (1,3)
@@ -184,6 +260,19 @@ class Box(Object):
         self.sides = sides
         self.rho = rho
         self.max_density = rho
+
+    @staticmethod
+    def from_dict(d: dict) -> "Box":
+        assert d["type"] == "box"
+        return Box(d["center"], d["sides"], d.get("rho", 1.0))
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "box",
+            "center": self.center,
+            "sides": self.sides,
+            "rho": self.rho,
+        }
         
     def density(self, pos: torch.Tensor):
         x = torch.abs(pos[:, 0] - self.center[0])
@@ -204,6 +293,27 @@ class Parallelepiped(Object):
         self.cube = Cube(torch.tensor([0.5,0.5,0.5]), 1, rho)
         self.inv = torch.inverse(torch.stack([v1, v2, v3], dim=1))
         self.max_density = rho
+
+    @staticmethod
+    def from_dict(d: dict) -> "Parallelepiped":
+        assert d["type"] == "parallelepiped"
+        return Parallelepiped(
+            torch.tensor(d["origin"]),
+            torch.tensor(d["v1"]),
+            torch.tensor(d["v2"]),
+            torch.tensor(d["v3"]),
+            d.get("rho", 1.0)
+        )
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "parallelepiped",
+            "origin": self.origin.tolist(),
+            "v1": self.v1.tolist(),
+            "v2": self.v2.tolist(),
+            "v3": self.v3.tolist(),
+            "rho": self.rho,
+        }
 
     def density(self, pos: torch.Tensor):
         pos = pos - self.origin.to(pos)
