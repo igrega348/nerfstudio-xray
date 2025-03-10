@@ -55,7 +55,7 @@ nerf_xray = MethodSpecification(
             # TODO: consider changing optimizers depending on your custom method
             "proposal_networks": {
                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.0001, max_steps=200000),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.0001, max_steps=5000),
             },
             "fields": {
                 "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),
@@ -64,12 +64,6 @@ nerf_xray = MethodSpecification(
             "flat_field": {
                 "optimizer": RAdamOptimizerConfig(lr=1e-3, eps=1e-15),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-6, max_steps=50000),
-            },
-            "camera_opt": {
-                # "optimizer": AdamOptimizerConfig(lr=1e-5, eps=1e-15),
-                # "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=5000),
-                "optimizer": AdamOptimizerConfig(lr=1e-11, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-12, max_steps=5000),
             },
         },
         viewer=ViewerConfig(

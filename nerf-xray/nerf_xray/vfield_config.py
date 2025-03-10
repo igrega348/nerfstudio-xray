@@ -74,7 +74,7 @@ xray_vfield = MethodSpecification(
             },
             "fields": {
                 "optimizer": AdamWOptimizerConfig(lr=1e-4, eps=1e-15, weight_decay=1e-8),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=3e-5, max_steps=10000),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=3e-5, max_steps=5000),
             },
             "field_weighing": {
                 "optimizer": AdamWOptimizerConfig(lr=1e-2, eps=1e-15, weight_decay=1e-8),

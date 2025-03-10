@@ -681,6 +681,11 @@ class BsplineTemporalIntegratedVelocityField3dConfig(BsplineTemporalDeformationF
     """Time step for integration"""
 
 class BsplineTemporalIntegratedVelocityField3d(BsplineTemporalDeformationField3d):
+    def velocity(self, x0, x1, x2, time):
+        phi = self.weight_nn(time.view(-1,1)).view(*self.bspline_field.grid_size, 3)
+        u = self.disp_func(x0, x1, x2, phi_x=phi)
+        return u
+
     def forward(self, positions, times, final_time):
         # positions, times of shape [ray, nsamples, 3]
         new_pos = positions.new_zeros(positions.shape)
@@ -701,8 +706,7 @@ class BsplineTemporalIntegratedVelocityField3d(BsplineTemporalDeformationField3d
                     _times[1:-1] += 0.1*self.config.timedelta*r # perturb by up to 10% dt
                 for it, _t in enumerate(_times[:-1]):
                     dt = _times[it+1] - _t
-                    phi = self.weight_nn(_t.view(-1,1)).view(*self.bspline_field.grid_size, 3)
-                    u = self.disp_func(x0, x1, x2, phi_x=phi)
+                    u = self.velocity(x0, x1, x2, _t)
                     x0, x1, x2 = x0 + u[:,0]*dt, x1 + u[:,1]*dt, x2 + u[:,2]*dt
                 
             if x0.dtype!=new_pos.dtype:
