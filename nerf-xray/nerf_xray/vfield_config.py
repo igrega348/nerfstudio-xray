@@ -21,6 +21,7 @@ from nerf_xray.template_dataparser import TemplateDataParserConfig
 from nerf_xray.vfield_model import VfieldModelConfig
 from nerf_xray.vfield_pipeline import VfieldPipelineConfig
 from nerf_xray.deformation_fields import BsplineTemporalIntegratedVelocityField3dConfig
+from nerf_xray.utils import ColdRestartLinearDecaySchedulerConfig
 
 xray_vfield = MethodSpecification(
     config=TrainerConfig(
@@ -74,7 +75,7 @@ xray_vfield = MethodSpecification(
             },
             "fields": {
                 "optimizer": AdamWOptimizerConfig(lr=1e-4, eps=1e-15, weight_decay=1e-8),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=3e-5, max_steps=5000),
+                "scheduler": ColdRestartLinearDecaySchedulerConfig(warmup_steps=50, lr_final=3e-5, max_steps=5000),
             },
             "field_weighing": {
                 "optimizer": AdamWOptimizerConfig(lr=1e-2, eps=1e-15, weight_decay=1e-8),
