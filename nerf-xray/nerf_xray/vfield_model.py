@@ -381,47 +381,10 @@ class VfieldModel(Model):
             return density_0
         if which=='backward':
             return density_1
-        # density = self.mix_two_fields(density_f, density_b, time)
         assert density_0 is not None and density_1 is not None
-        density = self.divergence_mixing(positions, time, density_0, density_1)
+        density = self.mix_two_fields(density_f, density_b, time)
+        # density = 0.5*(density_0 + density_1)
         return density
-
-    @staticmethod
-    def calculate_divergence(u:Tensor, pos: Tensor) -> Tensor:
-        duxdx = torch.autograd.grad(u[...,0], pos, grad_outputs=torch.ones_like(u[...,0]), retain_graph=True)[0][:,0]
-        duydy = torch.autograd.grad(u[...,1], pos, grad_outputs=torch.ones_like(u[...,1]), retain_graph=True)[0][:,1]
-        duzdz = torch.autograd.grad(u[...,2], pos, grad_outputs=torch.ones_like(u[...,2]))[0][:,2]
-        return duxdx + duydy + duzdz
-
-    def get_divs(self, pos: Tensor, t: float, final_time: float):
-        shape = pos.shape
-        pos = pos.view(-1,3)
-        divs = pos.new_zeros(pos.shape[0])
-        num_steps = ceil(abs(t-final_time)/self.deformation_field.config.timedelta)
-        _times = torch.linspace(t, final_time, num_steps, device=pos.device)
-        if _times.shape[0]>2:
-            r = 2*(torch.rand(_times.shape[0]-2, device=pos.device)-0.5) # uniform random -1 to 1
-            _times[1:-1] += 0.1*self.deformation_field.config.timedelta*r # perturb by up to 10% dt
-        for it, _t in enumerate(_times[:-1]):
-            dt = _times[it+1] - _t
-            phi = self.deformation_field.weight_nn(_t.view(-1,1)).view(*self.deformation_field.bspline_field.grid_size, 3)
-            u = self.deformation_field.disp_func(pos[...,0], pos[...,1], pos[...,2], phi_x=phi)
-            div = self.calculate_divergence(u, pos)
-            divs += div*dt
-            pos = pos + u.detach()*dt
-        return divs.view(shape[:-1])
-
-    def divergence_mixing(self, positions: Tensor, time: Tensor, density_0: Tensor, density_1: Tensor):
-        # density_f is for canonical volume at t=0
-        assert len(time.unique())==1
-        positions.requires_grad = True
-        
-        div_0 = self.get_divs(positions, time[0].item(), 0.0)
-        div_1 = self.get_divs(positions, time[0].item(), 1.0)
-        w = torch.stack([div_0, div_1], dim=-1)
-        w = torch.nn.functional.softmax(5*w, dim=-1)
-        new_density = w[...,0] * density_0 + w[...,1] * density_1
-        return new_density
 
 
     def get_density_difference(
