@@ -19,6 +19,7 @@ from nerf_xray.xray_datamanager import XrayDataManagerConfig
 from nerf_xray.template_dataparser import TemplateDataParserConfig
 from nerf_xray.template_model import TemplateModelConfig
 from nerf_xray.template_pipeline import TemplatePipelineConfig
+from nerf_xray.utils import ColdRestartLinearDecaySchedulerConfig
 
 nerf_xray = MethodSpecification(
     config=TrainerConfig(
@@ -59,7 +60,7 @@ nerf_xray = MethodSpecification(
             },
             "fields": {
                 "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-3, max_steps=100000),
+                "scheduler": ColdRestartLinearDecaySchedulerConfig(warmup_steps=50, lr_final=3e-5, max_steps=5000),
             },
             "flat_field": {
                 "optimizer": RAdamOptimizerConfig(lr=1e-3, eps=1e-15),
