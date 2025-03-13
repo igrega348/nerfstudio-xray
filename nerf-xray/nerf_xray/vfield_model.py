@@ -349,6 +349,36 @@ class VfieldModel(Model):
             for key in field_0_outputs:
                 field_outputs[key] = (1-alphas) * field_0_outputs[key] + alphas * field_1_outputs[key]
         return field_outputs
+        
+    def get_fields_mismatch_penalty(self, reduction: Literal['mean','sum','none'] = 'sum', npoints: Optional[int] = None):
+        # sample time
+        times = torch.linspace(0, 1, 11, device=self.device) # 0 to 1
+        if self.training: # perturb
+            times += (torch.rand(11)-0.5)*0.1
+        alphas = self.get_mixing_coefficient(times)
+        # cost = (alphas * (1-alphas)).detach() # should we detach or no?
+        cost = torch.sigmoid(50*(alphas*(1-alphas)-0.2))#.detach()
+        diffs = []
+        if npoints is None:
+            npoints = 1<<13 # 8096
+        for i,t in enumerate(times):
+            pos = (2*torch.rand((npoints, 3), device=self.device) - 1.0) * 0.7 # +0.7 to -0.7
+            diff = self.get_density_difference(pos, t.item()).pow(2).mean().view(1)
+            if self.training:
+                diff = diff * cost[i]
+            diffs.append(diff)
+        if len(diffs)>0:
+            if reduction=='sum':
+                loss = torch.cat(diffs).sum()
+            elif reduction=='mean':
+                loss = torch.cat(diffs).mean()
+            elif reduction=='none':
+                loss = torch.cat(diffs)
+            else:
+                raise ValueError(f'`reduction` {reduction} not recognized')
+        else:
+            loss = t.new_zeros(1)
+        return loss
 
     @contextmanager
     def empty_context_manager(self):
@@ -480,6 +510,8 @@ class VfieldModel(Model):
         if self.deformation_field is not None:
             metrics_dict["mean_disp"] = self.deformation_field.mean_disp()
             metrics_dict['max_disp'] = self.deformation_field.max_disp()
+        metrics_dict['mismatch_penalty'] = self.get_fields_mismatch_penalty()
+        metrics_dict['flat_field'] = self.flat_field.data.item()
         return metrics_dict
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):

@@ -289,7 +289,7 @@ class TemplateModel(Model):
         expected_depth = self.renderer_expected_depth(weights=weights, ray_samples=ray_samples)
         accumulation = self.renderer_accumulation(weights=weights)
         attenuation = self.renderer_attenuation(densities=field_outputs[FieldHeadNames.DENSITY], ray_samples=ray_samples)
-        rgb = self.renderer_attenuation.merge_flat_field(attenuation, self.flat_field) * attenuation.new_ones(1,3)
+        rgb = self.renderer_attenuation.merge_flat_field(attenuation, self.flat_field) #* attenuation.new_ones(1,3)
 
         outputs = {
             "rgb": rgb,
@@ -337,6 +337,7 @@ class TemplateModel(Model):
         if self.deformation_field is not None:
             metrics_dict["mean_disp"] = self.deformation_field.mean_disp()
             metrics_dict['max_disp'] = self.deformation_field.max_disp()
+        metrics_dict['flat_field'] = self.flat_field.data.item()
         return metrics_dict
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
@@ -347,7 +348,6 @@ class TemplateModel(Model):
             pred_accumulation=outputs["accumulation"],
             gt_image=image,
         )
-
         loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb, pred_rgb)
         if self.training:
             loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
@@ -372,6 +372,7 @@ class TemplateModel(Model):
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
         gt_rgb = batch["image"].to(self.device)
         predicted_rgb = outputs["rgb"]  # Blended with background (black if random background)
+        predicted_rgb = predicted_rgb * predicted_rgb.new_ones(1,3) # make into RGB
         gt_rgb = self.renderer_rgb.blend_background(gt_rgb)
         acc = colormaps.apply_colormap(outputs["accumulation"])
         depth = colormaps.apply_depth_colormap(

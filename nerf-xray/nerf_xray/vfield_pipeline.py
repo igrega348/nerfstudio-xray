@@ -250,38 +250,6 @@ class VfieldPipeline(VanillaPipeline):
     def get_flat_field_penalty(self):
         return -self.config.flat_field_loss_multiplier*self.model.flat_field.phi_x.mean()
 
-    def get_fields_mismatch_penalty(self, reduction: Literal['mean','sum','none'] = 'sum', npoints: Optional[int] = None):
-        if self.model.config.direction != 'both':
-            return torch.zeros(1, device=self.device)
-        # sample time
-        times = torch.linspace(0, 1, 11, device=self.device) # 0 to 1
-        if self.training: # perturb
-            times += (torch.rand(11)-0.5)*0.1
-        alphas = self.model.get_mixing_coefficient(times)
-        # cost = (alphas * (1-alphas)).detach() # should we detach or no?
-        cost = torch.sigmoid(50*(alphas*(1-alphas)-0.2))#.detach()
-        diffs = []
-        if npoints is None:
-            npoints = self.config.datamanager.train_num_rays_per_batch*32
-        for i,t in enumerate(times):
-            pos = (2*torch.rand((npoints, 3), device=self.device) - 1.0) * 0.7 # +0.7 to -0.7
-            diff = self.model.get_density_difference(pos, t.item()).pow(2).mean().view(1)
-            if self.training:
-                diff = diff * cost[i]
-            diffs.append(diff)
-        if len(diffs)>0:
-            if reduction=='sum':
-                loss = torch.cat(diffs).sum()
-            elif reduction=='mean':
-                loss = torch.cat(diffs).mean()
-            elif reduction=='none':
-                loss = torch.cat(diffs)
-            else:
-                raise ValueError(f'`reduction` {reduction} not recognized')
-        else:
-            loss = t.new_zeros(1)
-        return loss
-
     @profiler.time_function
     def get_train_loss_dict(self, step: int):
         """This function gets your training loss dict. This will be responsible for
