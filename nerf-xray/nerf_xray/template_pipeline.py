@@ -37,6 +37,7 @@ from nerf_xray.xray_datamanager import XrayDataManagerConfig
 from nerf_xray.template_model import TemplateModel, TemplateModelConfig
 
 
+
 @dataclass
 class TemplatePipelineConfig(VanillaPipelineConfig):
     """Configuration for pipeline instantiation"""

@@ -49,6 +49,7 @@ from .template_field import TemplateNerfField
 from .xray_renderer import AttenuationRenderer
 
 
+
 @dataclass
 class TemplateModelConfig(NerfactoModelConfig):
     """Template Model Configuration.

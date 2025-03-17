@@ -21,6 +21,7 @@ from nerf_xray.template_model import TemplateModelConfig
 from nerf_xray.template_pipeline import TemplatePipelineConfig
 from nerf_xray.utils import ColdRestartLinearDecaySchedulerConfig
 
+
 nerf_xray = MethodSpecification(
     config=TrainerConfig(
         method_name="nerf_xray", 

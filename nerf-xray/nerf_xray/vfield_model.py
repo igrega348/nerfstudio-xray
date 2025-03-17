@@ -354,7 +354,7 @@ class VfieldModel(Model):
         # sample time
         times = torch.linspace(0, 1, 11, device=self.device) # 0 to 1
         if self.training: # perturb
-            times += (torch.rand(11)-0.5)*0.1
+            times += (torch.rand(11, device=self.device)-0.5)*0.1
         alphas = self.get_mixing_coefficient(times)
         # cost = (alphas * (1-alphas)).detach() # should we detach or no?
         cost = torch.sigmoid(50*(alphas*(1-alphas)-0.2))#.detach()
@@ -462,7 +462,7 @@ class VfieldModel(Model):
         accumulation = self.renderer_accumulation(weights=weights)
         attenuation = self.renderer_attenuation(densities=field_outputs[FieldHeadNames.DENSITY], ray_samples=ray_samples)
         flat_field = self.flat_field(ray_bundle.times.view(-1)).view(-1,1)
-        rgb = self.renderer_attenuation.merge_flat_field(attenuation, flat_field) * attenuation.new_ones(1,3)
+        rgb = self.renderer_attenuation.merge_flat_field(attenuation, flat_field) #* attenuation.new_ones(1,3)
 
         outputs = {
             "rgb": rgb,
@@ -504,14 +504,11 @@ class VfieldModel(Model):
         predicted_rgb = outputs["rgb"]
         metrics_dict["psnr"] = self.psnr(predicted_rgb, gt_rgb)
 
-        if self.training:
-            metrics_dict["distortion"] = distortion_loss(outputs["weights_list"], outputs["ray_samples_list"])
-
         if self.deformation_field is not None:
             metrics_dict["mean_disp"] = self.deformation_field.mean_disp()
             metrics_dict['max_disp'] = self.deformation_field.max_disp()
-        metrics_dict['mismatch_penalty'] = self.get_fields_mismatch_penalty()
-        metrics_dict['flat_field'] = self.flat_field.data.item()
+        # metrics_dict['mismatch_penalty'] = self.get_fields_mismatch_penalty()
+        metrics_dict['flat_field'] = self.flat_field.phi_x.mean().item()
         return metrics_dict
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
@@ -524,22 +521,6 @@ class VfieldModel(Model):
         )
 
         loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb, pred_rgb)
-        if self.training:
-            loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
-                outputs["weights_list"], outputs["ray_samples_list"]
-            )
-            assert metrics_dict is not None and "distortion" in metrics_dict
-            loss_dict["distortion_loss"] = self.config.distortion_loss_mult * metrics_dict["distortion"]
-            if self.config.predict_normals:
-                # orientation loss for computed normals
-                loss_dict["orientation_loss"] = self.config.orientation_loss_mult * torch.mean(
-                    outputs["rendered_orientation_loss"]
-                )
-
-                # ground truth supervision for normals
-                loss_dict["pred_normal_loss"] = self.config.pred_normal_loss_mult * torch.mean(
-                    outputs["rendered_pred_normal_loss"]
-                )
         return loss_dict
 
     def get_image_metrics_and_images(
@@ -547,6 +528,7 @@ class VfieldModel(Model):
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
         gt_rgb = batch["image"].to(self.device)
         predicted_rgb = outputs["rgb"]  # Blended with background (black if random background)
+        predicted_rgb = predicted_rgb * predicted_rgb.new_ones(1,3)
         gt_rgb = self.renderer_rgb.blend_background(gt_rgb)
         acc = colormaps.apply_colormap(outputs["accumulation"])
         depth = colormaps.apply_depth_colormap(
