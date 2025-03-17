@@ -462,7 +462,7 @@ class VfieldModel(Model):
         accumulation = self.renderer_accumulation(weights=weights)
         attenuation = self.renderer_attenuation(densities=field_outputs[FieldHeadNames.DENSITY], ray_samples=ray_samples)
         flat_field = self.flat_field(ray_bundle.times.view(-1)).view(-1,1)
-        rgb = self.renderer_attenuation.merge_flat_field(attenuation, flat_field) * attenuation.new_ones(1,3)
+        rgb = self.renderer_attenuation.merge_flat_field(attenuation, flat_field) #* attenuation.new_ones(1,3)
 
         outputs = {
             "rgb": rgb,
@@ -504,9 +504,6 @@ class VfieldModel(Model):
         predicted_rgb = outputs["rgb"]
         metrics_dict["psnr"] = self.psnr(predicted_rgb, gt_rgb)
 
-        if self.training:
-            metrics_dict["distortion"] = distortion_loss(outputs["weights_list"], outputs["ray_samples_list"])
-
         if self.deformation_field is not None:
             metrics_dict["mean_disp"] = self.deformation_field.mean_disp()
             metrics_dict['max_disp'] = self.deformation_field.max_disp()
@@ -531,6 +528,7 @@ class VfieldModel(Model):
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
         gt_rgb = batch["image"].to(self.device)
         predicted_rgb = outputs["rgb"]  # Blended with background (black if random background)
+        predicted_rgb = predicted_rgb * predicted_rgb.new_ones(1,3)
         gt_rgb = self.renderer_rgb.blend_background(gt_rgb)
         acc = colormaps.apply_colormap(outputs["accumulation"])
         depth = colormaps.apply_depth_colormap(

@@ -260,6 +260,8 @@ class VfieldPipeline(VanillaPipeline):
             step: current iteration step to update sampler if using DDP (distributed)
         """
         ray_bundle, batch = self.datamanager.next_train(step)
+        assert batch['image'].ndim==2
+        batch['image'] = batch['image'][...,[0]] # [..., 1]
         model_outputs = self._model(ray_bundle)  # train distributed data parallel model if world_size > 1
         metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
@@ -267,11 +269,12 @@ class VfieldPipeline(VanillaPipeline):
         loss_dict['flat_field_loss'] = self.get_flat_field_penalty()
 
         if self.config.density_mismatch_start_step>=0 and step>self.config.density_mismatch_start_step and (self.model.field_f is not None) and (self.model.field_b is not None):
-            loss_dict.update({'mismatch_penalty':self.config.density_mismatch_coefficient*self.get_fields_mismatch_penalty()})
+            loss_dict.update({'mismatch_penalty':self.config.density_mismatch_coefficient*self.model.get_fields_mismatch_penalty()})
         
         
         if self.config.volumetric_supervision and step>self.config.volumetric_supervision_start_step:
             # provide supervision to visual training. Use cross-corelation loss
+            assert self.datamanager.object is not None
             density_loss = self.calculate_density_loss(sampling='random')
             loss_dict[f'volumetric_loss'] = self.config.volumetric_supervision_coefficient*(1-density_loss['normed_correlation'])
 
