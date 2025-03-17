@@ -123,7 +123,7 @@ class VfieldPipeline(VanillaPipeline):
         )
         metrics_dict.update(self.calculate_density_loss())
         metrics_dict['mixing_divergence'] = self.model.get_mixing_divergence()
-        metrics_dict.update({'mismatch_penalty':self.get_fields_mismatch_penalty()})
+        metrics_dict.update({'mismatch_penalty':self.model.get_fields_mismatch_penalty()})
 
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         self.train()

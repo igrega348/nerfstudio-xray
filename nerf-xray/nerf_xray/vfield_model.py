@@ -354,7 +354,7 @@ class VfieldModel(Model):
         # sample time
         times = torch.linspace(0, 1, 11, device=self.device) # 0 to 1
         if self.training: # perturb
-            times += (torch.rand(11)-0.5)*0.1
+            times += (torch.rand(11, device=self.device)-0.5)*0.1
         alphas = self.get_mixing_coefficient(times)
         # cost = (alphas * (1-alphas)).detach() # should we detach or no?
         cost = torch.sigmoid(50*(alphas*(1-alphas)-0.2))#.detach()
@@ -510,8 +510,8 @@ class VfieldModel(Model):
         if self.deformation_field is not None:
             metrics_dict["mean_disp"] = self.deformation_field.mean_disp()
             metrics_dict['max_disp'] = self.deformation_field.max_disp()
-        metrics_dict['mismatch_penalty'] = self.get_fields_mismatch_penalty()
-        metrics_dict['flat_field'] = self.flat_field.data.item()
+        # metrics_dict['mismatch_penalty'] = self.get_fields_mismatch_penalty()
+        metrics_dict['flat_field'] = self.flat_field.phi_x.mean().item()
         return metrics_dict
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
