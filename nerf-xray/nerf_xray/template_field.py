@@ -19,6 +19,7 @@ from nerfstudio.fields.nerfacto_field import \
 from torch import Tensor
 
 
+
 class TemplateNerfField(NerfactoField):
     """Template Field
 

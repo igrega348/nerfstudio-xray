@@ -25,6 +25,7 @@ from nerfstudio.utils.io import load_from_json
 from nerfstudio.utils.rich_utils import CONSOLE
 from PIL import Image
 
+
 MAX_AUTO_RESOLUTION = 2000
 
 
