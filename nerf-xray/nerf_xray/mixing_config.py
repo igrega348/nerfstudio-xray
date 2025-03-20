@@ -20,12 +20,12 @@ from nerf_xray.xray_temporal_datamanager import XrayTemporalDataManagerConfig
 from nerf_xray.template_dataparser import TemplateDataParserConfig
 from nerf_xray.vfield_model import VfieldModelConfig
 from nerf_xray.vfield_pipeline import VfieldPipelineConfig
-from nerf_xray.deformation_fields import BsplineTemporalIntegratedVelocityField3dConfig, DeformationFieldConfig
+from nerf_xray.deformation_fields import BsplineTemporalIntegratedVelocityField3dConfig, BsplineTemporalDeformationField3dConfig
 from nerf_xray.utils import ColdRestartLinearDecaySchedulerConfig
 
-xray_vfield = MethodSpecification(
+mixing_vfield = MethodSpecification(
     config=TrainerConfig(
-        method_name="xray_vfield", 
+        method_name="mixing_vfield", 
         steps_per_eval_batch=10,
         steps_per_eval_all_images=1000000,
         steps_per_eval_image=100,
@@ -56,15 +56,19 @@ xray_vfield = MethodSpecification(
                 eval_num_rays_per_chunk=512,
                 num_nerf_samples_per_ray=1024,
                 disable_scene_contraction=True,
-                train_density_field=False,
-                train_deformation_field=True,
                 deformation_field=BsplineTemporalIntegratedVelocityField3dConfig(
                     support_range=[(-1,1),(-1,1),(-1,1)],
                     num_control_points=(4,4,4),
                     timedelta=0.05,
                 ),
-                field_weighing=DeformationFieldConfig(),
-                train_field_weighing=False,
+                field_weighing=BsplineTemporalDeformationField3dConfig(
+                    support_range=[(-1,1),(-1,1),(-1,1)],
+                    num_control_points=(8,8,8),
+                    num_components=1,
+                ),
+                train_field_weighing=True,
+                train_density_field=False,
+                train_deformation_field=False,
             ),
             volumetric_supervision=False,
         ),

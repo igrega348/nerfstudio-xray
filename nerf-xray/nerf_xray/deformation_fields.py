@@ -559,6 +559,8 @@ class BsplineTemporalDeformationField3dConfig(DeformationFieldConfig):
     """Width of the neural network for the weights"""
     displacement_method: Literal['neighborhood','matrix'] = 'matrix'
     """Whether to use neighborhood calculation of bsplines or assemble full matrix""" 
+    num_components: int = 3
+    """Number of components in the deformation field"""
 
 class BsplineTemporalDeformationField3d(torch.nn.Module):
 
@@ -583,7 +585,7 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
         assert phi_x is None
         assert num_control_points is not None
         self.phi_x = None
-        self.weight_nn = NeuralPhiX(3*np.prod(num_control_points), 3, weight_nn_width)
+        self.weight_nn = NeuralPhiX(self.config.num_components*np.prod(num_control_points), 3, weight_nn_width)
         self.bspline_field = BSplineField3d(support_outside=support_outside, support_range=support_range, num_control_points=num_control_points)
         self.register_buffer('support_range', torch.tensor(support_range))
         self.warning_printed = False
@@ -595,7 +597,7 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
             raise ValueError('Displacement method has to be matrix or neighborhood')
 
     def get_u(self, positions, times):
-        phi = self.weight_nn(times).view(*self.bspline_field.grid_size, 3)
+        phi = self.weight_nn(times).view(*self.bspline_field.grid_size, self.config.num_components)
         x0, x1, x2 = positions[:,0], positions[:,1], positions[:,2]
         u = self.disp_func(x0, x1, x2, phi_x=phi)
         return u
@@ -630,6 +632,37 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
                         self.warning_printed = True
                 displacement[mask] = u
         return positions + displacement
+
+    def displacement(self, positions: Tensor, times: Tensor) -> Tensor:
+        # positions of shape [ray, nsamples, 3]
+        # times of shape [ray, nsamples, 1]
+        use_vmap = False
+        if use_vmap:
+            nsamples = positions.size(-2)
+            assert positions.size(-1)==3
+            orig_shape = positions.shape
+            
+            assert times.std(dim=-2).max()==0
+            times = times[..., 0, :] # [rays, 1]
+            displacement = torch.vmap(self.get_u, in_dims=0, out_dims=0)(positions.view(-1, nsamples, 3), times.view(-1,1))
+            displacement = displacement.reshape(orig_shape)
+        else:
+            displacement = positions.new_zeros(*positions.shape[:-1], self.config.num_components)
+            uq_times = torch.unique(times)
+            for t in uq_times:
+                mask = (times == t).squeeze()
+                if mask.numel()==1:
+                    x = positions
+                else:
+                    x = positions[mask]
+                u = self.get_u(x, t.view(-1,1))
+                if u.dtype!=displacement.dtype:
+                    displacement = displacement.to(u)
+                    if not self.warning_printed:
+                        print('displacement dtype changed to', u.dtype)
+                        self.warning_printed = True
+                displacement[mask] = u
+        return displacement
 
     def mean_disp(self) -> float:
         # sample and return the mean displacement

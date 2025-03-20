@@ -144,21 +144,16 @@ class VfieldModel(Model):
             self.field_b = PlaceHolderField()
 
         self.deformation_field = self.config.deformation_field.setup()
+        self.field_weighing = self.config.field_weighing.setup()
 
-        self.field_weighing = BSplineField1d(
-            torch.nn.parameter.Parameter(torch.zeros(10)), 
-            support_outside=True, 
-            support_range=(0,1)
-        )
-        if not self.config.train_field_weighing:
-            self.field_weighing.requires_grad_(False)
-
-        # train density or deformation field
+        # train density or deformation field or field weighing
         if not self.config.train_density_field:
             self.field_f.requires_grad_(False)
             self.field_b.requires_grad_(False)
         if not self.config.train_deformation_field:
             self.deformation_field.requires_grad_(False)
+        if not self.config.train_field_weighing:
+            self.field_weighing.requires_grad_(False)
 
         self.camera_optimizer = None
         self.density_fns = []
@@ -321,34 +316,30 @@ class VfieldModel(Model):
 
         return self.get_outputs(ray_bundle)
 
-    def get_mixing_divergence(self):
-        times = torch.linspace(0, 1, 20, device=self.device)
-        alphas = self.field_weighing(times)
-        alphas = torch.nn.functional.sigmoid(alphas)
-        div = torch.nn.functional.mse_loss(times, alphas)
-        return div
-
-    def get_mixing_coefficient(self, times: Tensor):
-        alphas = self.field_weighing(times.reshape(-1)).view(times.shape)
+    def get_mixing_coefficient(self, positions: Tensor, times: Tensor):
+        alphas = self.field_weighing.displacement(positions, times) # 1 scalar per ray
         alphas = torch.nn.functional.sigmoid(alphas)
         return alphas
 
-    def mix_two_fields(self, field_0_outputs: Union[Dict, Tensor, None], field_1_outputs: Union[Dict, Tensor, None], times: Tensor) -> Union[Dict, Tensor]:
-        if field_0_outputs is None:
-            return field_1_outputs
-        elif field_1_outputs is None:
-            return field_0_outputs
-
-        alphas = self.field_weighing(times.reshape(-1)).view(times.shape)
-        alphas = torch.nn.functional.sigmoid(alphas)
-        # alphas = float(torch.rand(1)<0.5) # sample one or the other
+    def mix_two_fields(self, field_0_outputs: Union[Dict, Tensor], field_1_outputs: Union[Dict, Tensor], alphas: Union[Tensor, float]) -> Union[Dict, Tensor]:
         if isinstance(field_0_outputs, Tensor):
+            assert isinstance(field_1_outputs, Tensor)
             field_outputs = (1-alphas) * field_0_outputs + alphas * field_1_outputs
         elif isinstance(field_0_outputs, dict):
             field_outputs = {}
             for key in field_0_outputs:
                 field_outputs[key] = (1-alphas) * field_0_outputs[key] + alphas * field_1_outputs[key]
         return field_outputs
+
+    def get_mixing_coefficient(self, positions: Tensor, times: Union[Tensor, float]) -> Union[float, Tensor]:
+        if self.disable_mixing:
+            alphas = 0.5
+        else:
+            if isinstance(times, float):
+                times = positions.new_ones(*positions.shape[:-1], 1)*times
+            alphas = self.field_weighing.displacement(positions, times) # 1 scalar per ray
+            alphas = torch.nn.functional.sigmoid(alphas)
+        return alphas
 
     @contextmanager
     def empty_context_manager(self):
@@ -382,8 +373,8 @@ class VfieldModel(Model):
         if which=='backward':
             return density_1
         assert density_0 is not None and density_1 is not None
-        density = self.mix_two_fields(density_f, density_b, time)
-        # density = 0.5*(density_0 + density_1)
+        alphas = self.get_mixing_coefficient(positions, time)
+        density = self.mix_two_fields(density_f, density_b, alphas) # type: ignore
         return density
 
 
@@ -416,8 +407,8 @@ class VfieldModel(Model):
         else:
             field_f_outputs = self.field_f.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,0.0))
             field_b_outputs = self.field_b.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,1.0))
-            
-            field_outputs = self.mix_two_fields(field_f_outputs, field_b_outputs, ray_samples.times)
+            alphas = self.get_mixing_coefficient(ray_samples.frustums.get_positions(), ray_samples.times)
+            field_outputs = self.mix_two_fields(field_f_outputs, field_b_outputs, alphas)
         if self.config.use_gradient_scaling:
             field_outputs = scale_gradients_by_distance_squared(field_outputs, ray_samples)
 
