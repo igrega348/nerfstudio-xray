@@ -65,6 +65,8 @@ class VfieldModelConfig(NerfactoModelConfig):
     """whether to train the deformation field"""
     deformation_field: DeformationFieldConfig = DeformationFieldConfig()
     """Forward deformation field"""
+    field_weighing: DeformationFieldConfig = DeformationFieldConfig()
+    """Field weighing"""
     flat_field_value: float = 0.0
     """initial value of flat field"""
     flat_field_trainable: bool = False
@@ -332,7 +334,7 @@ class VfieldModel(Model):
         return field_outputs
 
     def get_mixing_coefficient(self, positions: Tensor, times: Union[Tensor, float]) -> Union[float, Tensor]:
-        if self.disable_mixing:
+        if self.config.disable_mixing:
             alphas = 0.5
         else:
             if isinstance(times, float):

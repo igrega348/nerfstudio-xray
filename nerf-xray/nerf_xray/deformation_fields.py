@@ -48,14 +48,14 @@ class IdentityDeformationField(torch.nn.Module):
         return 0.0
 
 class NeuralPhiX(torch.nn.Module):
-    def __init__(self, num_control_points: int = 4, depth: int = 3, width: int = 10):
+    def __init__(self, num_control_points: int = 4, depth: int = 3, width: int = 10, init_gain: float = 1e-3, bias: bool = False):
         super().__init__()
         self.W = torch.nn.Sequential(torch.nn.Linear(1, width), torch.nn.SELU())
         for _ in range(depth-1):
             self.W.append(torch.nn.Linear(width, width))
             self.W.append(torch.nn.SELU())
-        lin = torch.nn.Linear(width, num_control_points, bias=False)
-        torch.nn.init.xavier_uniform_(lin.weight, gain=1e-3)
+        lin = torch.nn.Linear(width, num_control_points, bias=bias)
+        torch.nn.init.xavier_uniform_(lin.weight, gain=init_gain)
         self.W.append(lin)
 
     def forward(self, x):
@@ -258,7 +258,8 @@ class BSplineField3d(torch.nn.Module):
             support_outside: bool = False,
             support_range: Optional[List[Tuple[float,float]]] = None,
             num_control_points: Optional[Tuple[int,int,int]] = None,
-            A_sparse: bool = False
+            A_sparse: bool = False,
+            num_components: int = 3
     ) -> None:
         """Set up the B-spline field.
 
@@ -274,6 +275,7 @@ class BSplineField3d(torch.nn.Module):
             assert phi_x.ndim == 4
             assert phi_x.shape[0] > 3 and phi_x.shape[1] > 3 and phi_x.shape[2] > 3
             num_control_points = phi_x.shape[:3]
+            num_components = phi_x.shape[3]
         nx,ny,nz = num_control_points
         grid_size = np.array([nx, ny, nz])
         if support_range is None:
@@ -292,6 +294,7 @@ class BSplineField3d(torch.nn.Module):
         self.register_buffer('spacing', torch.tensor(spacing))
         self.register_buffer('support_outside', torch.tensor(support_outside))
         self.register_buffer('A_sparse', torch.tensor(A_sparse))
+        self.register_buffer('num_components', torch.tensor(num_components))
 
     def __repr__(self) -> str:
         f = self
@@ -466,8 +469,8 @@ class BSplineField3d(torch.nn.Module):
         A = self.get_A_matrix(x.view(-1), y.view(-1), z.view(-1))
         if phi_x is None:
             phi_x = self.phi_x
-        u = A@phi_x.view(-1,3)
-        return u.view(*shape, 3)
+        u = A@phi_x.view(-1, self.num_components)
+        return u.view(*shape, self.num_components)
 
     def mean_disp(self, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None):
         if phi_x is None:
@@ -557,6 +560,10 @@ class BsplineTemporalDeformationField3dConfig(DeformationFieldConfig):
     """Number of control points in each dimension"""
     weight_nn_width: int = 16
     """Width of the neural network for the weights"""
+    weight_nn_bias: bool = False
+    """Whether to use bias in the neural network for the weights"""
+    weight_nn_init_gain: float = 1e-3
+    """Initialization gain for the weights"""
     displacement_method: Literal['neighborhood','matrix'] = 'matrix'
     """Whether to use neighborhood calculation of bsplines or assemble full matrix""" 
     num_components: int = 3
@@ -585,8 +592,8 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
         assert phi_x is None
         assert num_control_points is not None
         self.phi_x = None
-        self.weight_nn = NeuralPhiX(self.config.num_components*np.prod(num_control_points), 3, weight_nn_width)
-        self.bspline_field = BSplineField3d(support_outside=support_outside, support_range=support_range, num_control_points=num_control_points)
+        self.weight_nn = NeuralPhiX(self.config.num_components*np.prod(num_control_points), 3, weight_nn_width, init_gain=config.weight_nn_init_gain, bias=config.weight_nn_bias)
+        self.bspline_field = BSplineField3d(support_outside=support_outside, support_range=support_range, num_control_points=num_control_points, num_components=config.num_components)
         self.register_buffer('support_range', torch.tensor(support_range))
         self.warning_printed = False
         if config.displacement_method=='matrix':
@@ -667,13 +674,13 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
     def mean_disp(self) -> float:
         # sample and return the mean displacement
         device = next(self.parameters()).device
-        t = torch.rand(100,1, device=device)
+        t = torch.linspace(0, 1, 101, device=device).view(-1,1)
         return self.weight_nn(t).abs().mean().item()
 
     def max_disp(self) -> float:
         # sample and return the max displacement
         device = next(self.parameters()).device
-        t = torch.rand(100,1, device=device)
+        t = torch.linspace(0, 1, 101, device=device).view(-1,1)
         return self.weight_nn(t).abs().max().item()
     
 @dataclass

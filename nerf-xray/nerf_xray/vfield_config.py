@@ -90,12 +90,6 @@ xray_vfield = MethodSpecification(
                 "optimizer": RAdamOptimizerConfig(lr=1e-4, eps=1e-15),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-6, max_steps=50000),
             },
-            "camera_opt": {
-                # "optimizer": AdamOptimizerConfig(lr=1e-5, eps=1e-15),
-                # "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=5000),
-                "optimizer": AdamOptimizerConfig(lr=1e-11, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-12, max_steps=5000),
-            },
         },
         viewer=ViewerConfig(
             num_rays_per_chunk=1 << 15, 

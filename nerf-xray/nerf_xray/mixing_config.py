@@ -43,8 +43,8 @@ mixing_vfield = MethodSpecification(
                     eval_mode='filename+modulo',
                     includes_time=True,
                 ),
-                train_num_rays_per_batch=512,
-                eval_num_rays_per_batch=512,
+                train_num_rays_per_batch=2048,
+                eval_num_rays_per_batch=2048,
                 max_images_per_timestamp=3,
                 time_proposal_steps=500,
             ),
@@ -53,7 +53,7 @@ mixing_vfield = MethodSpecification(
                 background_color='white',
                 flat_field_value=0.02,
                 flat_field_trainable=True,
-                eval_num_rays_per_chunk=512,
+                eval_num_rays_per_chunk=2048,
                 num_nerf_samples_per_ray=1024,
                 disable_scene_contraction=True,
                 deformation_field=BsplineTemporalIntegratedVelocityField3dConfig(
@@ -63,8 +63,10 @@ mixing_vfield = MethodSpecification(
                 ),
                 field_weighing=BsplineTemporalDeformationField3dConfig(
                     support_range=[(-1,1),(-1,1),(-1,1)],
-                    num_control_points=(8,8,8),
+                    num_control_points=(6,6,6),
                     num_components=1,
+                    weight_nn_bias=True,
+                    weight_nn_init_gain=0.1,
                 ),
                 train_field_weighing=True,
                 train_density_field=False,
@@ -84,7 +86,7 @@ mixing_vfield = MethodSpecification(
             },
             "field_weighing": {
                 "optimizer": AdamWOptimizerConfig(lr=1e-2, eps=1e-15, weight_decay=1e-8),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=3e-4, max_steps=10000),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=5000),
             },
             # "fields": { 
             #     "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),

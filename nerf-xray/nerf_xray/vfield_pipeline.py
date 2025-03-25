@@ -122,7 +122,13 @@ class VfieldPipeline(VanillaPipeline):
             {'flat_field': self.model.flat_field.phi_x.mean()}
         )
         metrics_dict.update(self.calculate_density_loss())
-        metrics_dict['mixing_divergence'] = self.model.get_mixing_divergence()
+        # metrics_dict['mixing_divergence'] = self.model.get_mixing_divergence()
+        if self.model.config.disable_mixing==False:
+            t = torch.linspace(0, 1, 101, device=self.device)
+            alpha = self.model.field_weighing.weight_nn(t.view(-1,1))
+            alpha = torch.sigmoid(alpha)
+            metrics_dict['mean_mixing_amplitude'] = alpha.mean().item()
+
         metrics_dict.update({'mismatch_penalty':self.get_fields_mismatch_penalty()})
 
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
@@ -257,17 +263,12 @@ class VfieldPipeline(VanillaPipeline):
         times = torch.linspace(0, 1, 11, device=self.device) # 0 to 1
         if self.training: # perturb
             times += (torch.rand(11)-0.5)*0.1
-        alphas = self.model.get_mixing_coefficient(times)
-        # cost = (alphas * (1-alphas)).detach() # should we detach or no?
-        cost = torch.sigmoid(50*(alphas*(1-alphas)-0.2))#.detach()
         diffs = []
         if npoints is None:
             npoints = self.config.datamanager.train_num_rays_per_batch*32
         for i,t in enumerate(times):
             pos = (2*torch.rand((npoints, 3), device=self.device) - 1.0) * 0.7 # +0.7 to -0.7
             diff = self.model.get_density_difference(pos, t.item()).pow(2).mean().view(1)
-            if self.training:
-                diff = diff * cost[i]
             diffs.append(diff)
         if len(diffs)>0:
             if reduction=='sum':
