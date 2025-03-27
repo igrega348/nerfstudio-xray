@@ -48,14 +48,14 @@ class IdentityDeformationField(torch.nn.Module):
         return 0.0
 
 class NeuralPhiX(torch.nn.Module):
-    def __init__(self, num_control_points: int = 4, depth: int = 3, width: int = 10):
+    def __init__(self, num_control_points: int = 4, depth: int = 3, width: int = 10, gain: float = 1e-3, bias: bool = False):
         super().__init__()
         self.W = torch.nn.Sequential(torch.nn.Linear(1, width), torch.nn.SELU())
         for _ in range(depth-1):
             self.W.append(torch.nn.Linear(width, width))
             self.W.append(torch.nn.SELU())
-        lin = torch.nn.Linear(width, num_control_points, bias=False)
-        torch.nn.init.xavier_uniform_(lin.weight, gain=1e-3)
+        lin = torch.nn.Linear(width, num_control_points, bias=bias)
+        torch.nn.init.xavier_uniform_(lin.weight, gain=gain)
         self.W.append(lin)
 
     def forward(self, x):
@@ -557,6 +557,10 @@ class BsplineTemporalDeformationField3dConfig(DeformationFieldConfig):
     """Number of control points in each dimension"""
     weight_nn_width: int = 16
     """Width of the neural network for the weights"""
+    weight_nn_bias: bool = False
+    """Whether to use bias in the final layer of the neural network"""
+    weight_nn_gain: float = 1e-3
+    """Gain for the initialization of the weights of the final layer"""
     displacement_method: Literal['neighborhood','matrix'] = 'matrix'
     """Whether to use neighborhood calculation of bsplines or assemble full matrix""" 
 
@@ -583,7 +587,13 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
         assert phi_x is None
         assert num_control_points is not None
         self.phi_x = None
-        self.weight_nn = NeuralPhiX(3*np.prod(num_control_points), 3, weight_nn_width)
+        self.weight_nn = NeuralPhiX(
+            num_control_points=3*np.prod(num_control_points), 
+            depth=3,
+            width=weight_nn_width,
+            gain=config.weight_nn_gain,
+            bias=config.weight_nn_bias
+        )
         self.bspline_field = BSplineField3d(support_outside=support_outside, support_range=support_range, num_control_points=num_control_points)
         self.register_buffer('support_range', torch.tensor(support_range))
         self.warning_printed = False
