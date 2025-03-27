@@ -1,13 +1,16 @@
 from typing import Optional
 from pathlib import Path
 import torch
+import yaml
 import numpy as np
+from nerfstudio.engine.trainer import TrainerConfig
+import copy
 import matplotlib.pyplot as plt
 from nerf_xray.deformation_fields import BsplineTemporalIntegratedVelocityField3dConfig, BsplineTemporalIntegratedVelocityField3d
 from tqdm import tqdm, trange
 import tyro
 
-def load_def_field(p: Path, old_ng: int, weight_nn_width: int):
+def load_def_field(p: Path, old_df_config: BsplineTemporalIntegratedVelocityField3dConfig):
     print(f'Loading from {p}')
     data = torch.load(Path(p), weights_only=False)
     _data = {}
@@ -18,30 +21,30 @@ def load_def_field(p: Path, old_ng: int, weight_nn_width: int):
             key_map[key.split('deformation_field.')[1]] = key
     data = _data
 
-    deformation_field = make_def_field(old_ng, weight_nn_width)
+    deformation_field = old_df_config.setup()
     deformation_field.load_state_dict(data)
     return deformation_field, key_map
 
-def make_def_field(ng: int, weight_nn_width: int):
-    df2 = BsplineTemporalIntegratedVelocityField3dConfig(
-        support_range=[(-1,1),(-1,1),(-1,1)],
-        num_control_points=(ng,ng,ng),
-        weight_nn_width=weight_nn_width
-    ).setup()
-    return df2
-
 def main(
-    ckpt_path: Path,
-    old_resolution: int,
+    load_config: Path,
     new_resolution: int,
-    old_nn_width: int,
     new_nn_width: int,
     out_path: Optional[Path] = None
 ):
-    old_df, key_map = load_def_field(ckpt_path, old_resolution, old_nn_width)
-    print(f'Old timedelta: {old_df.config.timedelta}')
-    new_df = make_def_field(new_resolution, new_nn_width)
-    print(f'New timedelta: {new_df.config.timedelta}')
+    config = yaml.load(load_config.read_text(), Loader=yaml.Loader)
+    assert isinstance(config, TrainerConfig)
+    load_dir = config.get_checkpoint_dir()
+    # discover the latest checkpoint
+    ckpt_path = max(load_dir.glob('*.ckpt'))
+    print(f'Loading from {ckpt_path}')
+    old_df_config = config.pipeline.model.deformation_field
+    old_df, key_map = load_def_field(ckpt_path, old_df_config)
+    print(f'Old field: {old_df_config}')
+    new_df_config = copy.deepcopy(old_df_config)
+    new_df_config.num_control_points = (new_resolution, new_resolution, new_resolution)
+    new_df_config.weight_nn_width = new_nn_width
+    new_df = new_df_config.setup()
+    print(f'New field: {new_df_config}')
     # send to cuda
     old_df = old_df.to('cuda')
     new_df = new_df.to('cuda')
