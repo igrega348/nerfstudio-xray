@@ -21,7 +21,7 @@ def main(
     combined_state_dict = {'pipeline':{}}
     for direction, ckpt in zip(['f', 'b'], [fwd_ckpt, bwd_ckpt]):
         if ckpt is None: continue
-        data = torch.load(ckpt)
+        data = torch.load(ckpt, weights_only=False)
         for key, val in data.items():
             if key=='step':
                 if key not in combined_state_dict:

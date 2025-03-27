@@ -9,7 +9,7 @@ import tyro
 
 def load_def_field(p: Path, old_ng: int, weight_nn_width: int):
     print(f'Loading from {p}')
-    data = torch.load(Path(p))
+    data = torch.load(Path(p), weights_only=False)
     _data = {}
     key_map = {}
     for key in data['pipeline'].keys():
@@ -91,7 +91,7 @@ def main(
     plt.savefig(ckpt_path.with_name('def_field_refining.png'))
     plt.close()
 
-    data = torch.load(ckpt_path)
+    data = torch.load(ckpt_path, weights_only=False)
     new_dict = new_df.state_dict()
     for key in key_map:
         data['pipeline'][key_map[key]] = new_dict[key].to('cuda')
