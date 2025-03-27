@@ -209,7 +209,13 @@ class VfieldPipeline(VanillaPipeline):
             'normed_correlation': normed_correlation
             }
 
-    def get_eval_density_loss(self, sampling: str = 'random', time: Optional[float] = None, target: Optional[Object] = None, npoints: Optional[int] = None) -> Dict[str, Any]:
+    def get_eval_density_loss(
+        self, 
+        sampling: Literal['random','grid'] = 'random', 
+        time: Optional[float] = None, 
+        target: Optional[Object] = None, 
+        npoints: Optional[int] = None
+    ) -> Dict[str, Any]:
         if sampling=='grid':
             if npoints is None: 
                 npoints = 200
