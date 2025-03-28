@@ -521,8 +521,9 @@ class VfieldModel(Model):
             outputs["depth"],
             accumulation=outputs["accumulation"],
         )
-
-        diff_rgb = torch.abs(gt_rgb - predicted_rgb)
+        
+        diff_rgb = torch.abs(gt_rgb - predicted_rgb).mean(dim=-1, keepdim=True)
+        diff_rgb = colormaps.apply_colormap(diff_rgb)
         combined_rgb = torch.cat([gt_rgb, predicted_rgb], dim=1)
         combined_acc = torch.cat([acc], dim=1)
         combined_depth = torch.cat([depth], dim=1)
