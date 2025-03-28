@@ -192,17 +192,20 @@ class VfieldPipeline(VanillaPipeline):
         self.train()
         return metrics_dict
     
-    def calculate_density_loss(self, sampling: str = 'random') -> Dict[str, Any]:
+    def calculate_density_loss(self, sampling: str = 'random', time: float = 0.0) -> Dict[str, Any]:
         if sampling=='grid':
             pos = torch.linspace(-0.7, 0.7, 200, device=self.device) # scene box goes between -1 and 1 
             pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
         elif sampling=='random':
             pos = (torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 0.5) * 1.4
-        density_0 = self.model.get_density_from_pos(pos, time=0.0, which='backward').squeeze() # points sampled at 0.0
-        density_1 = self.model.get_density_from_pos(pos, time=0.0, which='forward').squeeze()
-        # pos1 = self.model.deformation_field(pos, pos.new_zeros(1), 1.0)
-        # density_0 = self.datamanager.object.density(pos).squeeze()
-        # density_1 = self.datamanager.final_object.density(pos1).squeeze()
+        if time==0.0:
+            density_0 = self.model.get_density_from_pos(pos, time=0.0, which='backward').squeeze() # points sampled at 0.0
+            density_1 = self.model.get_density_from_pos(pos, time=0.0, which='forward').squeeze()
+        elif time==1.0:
+            density_0 = self.model.get_density_from_pos(pos, time=1.0, which='forward').squeeze()
+            density_1 = self.model.get_density_from_pos(pos, time=1.0, which='backward').squeeze()
+        else:
+            raise ValueError(f'Time {time} not supported')
         
         normed_correlation = self.calculate_normed_correlation(x=density_0, y=density_1)
         return {
@@ -311,7 +314,9 @@ class VfieldPipeline(VanillaPipeline):
         if self.config.volumetric_supervision and step>self.config.volumetric_supervision_start_step:
             # provide supervision to visual training. Use cross-corelation loss
             density_loss = self.calculate_density_loss(sampling='random')
-            loss_dict[f'volumetric_loss'] = self.config.volumetric_supervision_coefficient*(1-density_loss['normed_correlation'])
+            loss_dict[f'volumetric_loss_0'] = self.config.volumetric_supervision_coefficient*(1-density_loss['normed_correlation'])
+            density_loss = self.calculate_density_loss(sampling='random', time=1.0)
+            loss_dict[f'volumetric_loss_1'] = self.config.volumetric_supervision_coefficient*(1-density_loss['normed_correlation'])
 
         return model_outputs, loss_dict, metrics_dict
     
