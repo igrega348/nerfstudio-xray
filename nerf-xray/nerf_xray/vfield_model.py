@@ -522,6 +522,7 @@ class VfieldModel(Model):
             accumulation=outputs["accumulation"],
         )
 
+        diff_rgb = torch.abs(gt_rgb - predicted_rgb)
         combined_rgb = torch.cat([gt_rgb, predicted_rgb], dim=1)
         combined_acc = torch.cat([acc], dim=1)
         combined_depth = torch.cat([depth], dim=1)
@@ -538,7 +539,7 @@ class VfieldModel(Model):
         metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim)}  # type: ignore
         metrics_dict["lpips"] = float(lpips)
 
-        images_dict = {"img": combined_rgb, "accumulation": combined_acc, "depth": combined_depth}
+        images_dict = {"img": combined_rgb, "accumulation": combined_acc, "depth": combined_depth, "diff_rgb": diff_rgb}
 
         for i in range(self.config.num_proposal_iterations):
             key = f"prop_depth_{i}"
