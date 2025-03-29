@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Tuple, Type, Union, Optional
 from math import ceil
 from contextlib import contextmanager
+from collections import defaultdict
 
 import numpy as np
 import torch
@@ -36,6 +37,7 @@ from nerfstudio.models.base_model import Model, ModelConfig  # for custom Model
 from nerfstudio.models.nerfacto import (  # for subclassing Nerfacto model
     NerfactoModel, NerfactoModelConfig)
 from nerfstudio.utils import colormaps
+from nerfstudio.data.scene_box import OrientedBox, SceneBox
 from torch import Tensor
 from torch.nn import Parameter
 
@@ -306,7 +308,7 @@ class VfieldModel(Model):
             )
         return callbacks
     
-    def forward(self, ray_bundle: Union[RayBundle, Cameras, Tensor]) -> Dict[str, Union[torch.Tensor, List]]:
+    def forward(self, ray_bundle: Union[RayBundle, Cameras, Tensor], which: Optional[Literal['forward','backward','mixed']] = None) -> Dict[str, Union[torch.Tensor, List]]:
         """Run forward starting with a ray bundle. This outputs different things depending on the configuration
         of the model and whether or not the batch is provided (whether or not we are training basically)
 
@@ -316,7 +318,50 @@ class VfieldModel(Model):
         if self.collider is not None:
             ray_bundle = self.collider(ray_bundle)
 
-        return self.get_outputs(ray_bundle)
+        return self.get_outputs(ray_bundle, which=which)
+    
+    @torch.no_grad()
+    def get_outputs_for_camera(self, camera: Cameras, obb_box: Optional[OrientedBox] = None, which: Optional[Literal['forward','backward','mixed']] = None) -> Dict[str, torch.Tensor]:
+        """Takes in a camera, generates the raybundle, and computes the output of the model.
+        Assumes a ray-based model.
+
+        Args:
+            camera: generates raybundle
+        """
+        return self.get_outputs_for_camera_ray_bundle(
+            camera.generate_rays(camera_indices=0, keep_shape=True, obb_box=obb_box),
+            which=which
+        )
+
+    @torch.no_grad()
+    def get_outputs_for_camera_ray_bundle(self, camera_ray_bundle: RayBundle, which: Optional[Literal['forward','backward','mixed']] = None) -> Dict[str, torch.Tensor]:
+        """Takes in camera parameters and computes the output of the model.
+
+        Args:
+            camera_ray_bundle: ray bundle to calculate outputs over
+        """
+        input_device = camera_ray_bundle.directions.device
+        num_rays_per_chunk = self.config.eval_num_rays_per_chunk
+        image_height, image_width = camera_ray_bundle.origins.shape[:2]
+        num_rays = len(camera_ray_bundle)
+        outputs_lists = defaultdict(list)
+        for i in range(0, num_rays, num_rays_per_chunk):
+            start_idx = i
+            end_idx = i + num_rays_per_chunk
+            ray_bundle = camera_ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
+            # move the chunk inputs to the model device
+            ray_bundle = ray_bundle.to(self.device)
+            outputs = self.forward(ray_bundle=ray_bundle, which=which)
+            for output_name, output in outputs.items():  # type: ignore
+                if not isinstance(output, torch.Tensor):
+                    # TODO: handle lists of tensors as well
+                    continue
+                # move the chunk outputs from the model device back to the device of the inputs.
+                outputs_lists[output_name].append(output.to(input_device))
+        outputs = {}
+        for output_name, outputs_list in outputs_lists.items():
+            outputs[output_name] = torch.cat(outputs_list).view(image_height, image_width, -1)  # type: ignore
+        return outputs
 
     def get_mixing_coefficient(self, positions: Tensor, times: Tensor):
         alphas = self.field_weighing.displacement(positions, times) # 1 scalar per ray
@@ -376,7 +421,7 @@ class VfieldModel(Model):
             return density_1
         assert density_0 is not None and density_1 is not None
         alphas = self.get_mixing_coefficient(positions, time)
-        density = self.mix_two_fields(density_f, density_b, alphas) # type: ignore
+        density = self.mix_two_fields(density_0, density_1, alphas) # type: ignore
         return density
 
 
@@ -396,7 +441,7 @@ class VfieldModel(Model):
         density_b = self.field_b.get_density_from_pos(positions, deformation_field=lambda x,t: self.deformation_field(x,t,1.0), time=time).squeeze()
         return density_f - density_b
 
-    def get_outputs(self, ray_bundle: RayBundle):
+    def get_outputs(self, ray_bundle: RayBundle, which: Optional[Literal['forward','backward','mixed']] = None):
         # apply the camera optimizer pose tweaks
         ray_samples: RaySamples
         ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
@@ -407,10 +452,16 @@ class VfieldModel(Model):
             else:
                 field_outputs = self.field_b.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,1.0))
         else:
-            field_f_outputs = self.field_f.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,0.0))
-            field_b_outputs = self.field_b.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,1.0))
-            alphas = self.get_mixing_coefficient(ray_samples.frustums.get_positions(), ray_samples.times)
-            field_outputs = self.mix_two_fields(field_f_outputs, field_b_outputs, alphas)
+            if which=='forward':
+                field_outputs = self.field_f.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,0.0))
+            elif which=='backward':
+                field_outputs = self.field_b.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,1.0))
+            else:
+                field_f_outputs = self.field_f.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,0.0))
+                field_b_outputs = self.field_b.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,1.0))
+                alphas = self.get_mixing_coefficient(ray_samples.frustums.get_positions(), ray_samples.times)
+                field_outputs = self.mix_two_fields(field_f_outputs, field_b_outputs, alphas)
+        
         if self.config.use_gradient_scaling:
             field_outputs = scale_gradients_by_distance_squared(field_outputs, ray_samples)
 
@@ -514,7 +565,9 @@ class VfieldModel(Model):
             outputs["depth"],
             accumulation=outputs["accumulation"],
         )
-
+        
+        diff_rgb = torch.abs(gt_rgb - predicted_rgb).mean(dim=-1, keepdim=True)
+        diff_rgb = colormaps.apply_colormap(diff_rgb)
         combined_rgb = torch.cat([gt_rgb, predicted_rgb], dim=1)
         combined_acc = torch.cat([acc], dim=1)
         combined_depth = torch.cat([depth], dim=1)
@@ -531,7 +584,7 @@ class VfieldModel(Model):
         metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim)}  # type: ignore
         metrics_dict["lpips"] = float(lpips)
 
-        images_dict = {"img": combined_rgb, "accumulation": combined_acc, "depth": combined_depth}
+        images_dict = {"img": combined_rgb, "accumulation": combined_acc, "depth": combined_depth, "diff_rgb": diff_rgb}
 
         for i in range(self.config.num_proposal_iterations):
             key = f"prop_depth_{i}"
