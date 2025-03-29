@@ -125,10 +125,7 @@ class VfieldPipeline(VanillaPipeline):
         metrics_dict['normed_correlation_1'] = self.calculate_density_loss(sampling='random', time=1.0)['normed_correlation']
         metrics_dict.update({'mismatch_penalty':self.get_fields_mismatch_penalty()})
         if self.model.config.disable_mixing==False:
-            t = torch.linspace(0, 1, 21, device=self.device)
-            alpha = self.model.field_weighing.weight_nn(t.view(-1,1))
-            alpha = torch.sigmoid(alpha)
-            metrics_dict['mean_mixing_amplitude'] = alpha.mean().item()
+            metrics_dict['mean_mixing_amplitude'], metrics_dict['std_mixing_amplitude'] = self.model.field_weighing.get_mean_std_amplitude()
 
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         self.train()

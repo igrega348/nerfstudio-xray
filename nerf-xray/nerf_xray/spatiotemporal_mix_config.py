@@ -24,9 +24,9 @@ from nerf_xray.vfield_pipeline import VfieldPipelineConfig
 from nerf_xray.deformation_fields import BsplineTemporalIntegratedVelocityField3dConfig, BsplineTemporalDeformationField3dConfig
 from nerf_xray.utils import ColdRestartLinearDecaySchedulerConfig
 
-mixing_vfield = MethodSpecification(
+spatiotemporal_mix = MethodSpecification(
     config=TrainerConfig(
-        method_name="mixing_vfield", 
+        method_name="spatiotemporal_mix", 
         steps_per_eval_batch=10,
         steps_per_eval_all_images=1000000,
         steps_per_eval_image=100,
@@ -62,7 +62,11 @@ mixing_vfield = MethodSpecification(
                     num_control_points=(4,4,4),
                     timedelta=0.05,
                 ),
-                field_weighing=TemporalMixerConfig(num_control_points=10),
+                field_weighing=SpatioTemporalMixerConfig(
+                    num_control_points=(6,6,6),
+                    weight_nn_width=16,
+                    displacement_method='matrix'
+                ),
                 train_field_weighing=True,
                 train_density_field=False,
                 train_deformation_field=False,
@@ -82,10 +86,6 @@ mixing_vfield = MethodSpecification(
                 "optimizer": AdamWOptimizerConfig(lr=1e-2, eps=1e-15, weight_decay=1e-8),
                 "scheduler": ColdRestartLinearDecaySchedulerConfig(warmup_steps=50, lr_pre_warmup=1e-8, lr_final=1e-4, steady_steps=2000, max_steps=3000),
             },
-            # "fields": { 
-            #     "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),
-            #     "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=50000),
-            # },
             "flat_field": {
                 "optimizer": RAdamOptimizerConfig(lr=1e-4, eps=1e-15),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-6, max_steps=50000),
@@ -98,5 +98,5 @@ mixing_vfield = MethodSpecification(
         ),
         vis="tensorboard",
     ),
-    description="Nerfstudio method template.",
+    description="Spatio-temporal mixing of fields.",
 )

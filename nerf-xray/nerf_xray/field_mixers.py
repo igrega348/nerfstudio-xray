@@ -23,7 +23,6 @@ class FieldMixer(torch.nn.Module):
 
     config: FieldMixerConfig
 
-    @abstractmethod
     def __init__(
         self,
         config: FieldMixerConfig,
@@ -34,6 +33,8 @@ class FieldMixer(torch.nn.Module):
         Args:
             config: configuration for the deformation field
         """
+        super().__init__()
+        self.config = config
     
     @abstractmethod
     def get_mixing_coefficient(self, positions: Tensor, times: Tensor) -> Tensor:
@@ -43,6 +44,25 @@ class FieldMixer(torch.nn.Module):
             positions: positions of the points
             times: times of the points
         """
+
+    @abstractmethod
+    def get_mean_amplitude(self) -> float:
+        """Get the mean amplitude of the field mixer"""
+        pass
+
+    @abstractmethod
+    def get_std_amplitude(self) -> float:
+        """Get the standard deviation of the field mixer"""
+        pass
+    
+    @abstractmethod
+    def get_mean_std_amplitude(self) -> Tuple[float, float]:
+        """Get the mean and standard deviation of the field mixer"""
+        pass
+    
+    @property
+    def device(self):
+        return next(self.parameters()).device
 
 @dataclass 
 class ConstantMixerConfig(FieldMixerConfig):
@@ -72,22 +92,12 @@ class SpatioTemporalMixerConfig(FieldMixerConfig):
 
     _target: Type = field(default_factory=lambda: SpatioTemporalMixer)
     """target class to instantiate"""
-    support_outside: bool = True
-    """Support outside the control points"""
-    support_range: Optional[List[Tuple[float,float]]] = None
-    """Support range for the deformation field"""
     num_control_points: Optional[Tuple[int,int,int]] = None
     """Number of control points in each dimension"""
     weight_nn_width: int = 16
     """Width of the neural network for the weights"""
-    weight_nn_bias: bool = True
-    """Whether to use bias in the neural network for the weights"""
-    weight_nn_init_gain: float = 1
-    """Initialization gain for the weights of the final layer"""
     displacement_method: Literal['neighborhood','matrix'] = 'matrix'
     """Whether to use neighborhood calculation of bsplines or assemble full matrix""" 
-    num_components: int = 1
-    """Number of components in the deformation field"""
 
 class SpatioTemporalMixer(FieldMixer):
 
@@ -102,19 +112,19 @@ class SpatioTemporalMixer(FieldMixer):
         
         # Create the B-spline temporal deformation field
         deformation_config = BsplineTemporalDeformationField3dConfig(
-            support_outside=config.support_outside,
-            support_range=config.support_range,
+            support_outside=True,
+            support_range=[(-1,1), (-1,1), (-1,1)],
             num_control_points=config.num_control_points,
             weight_nn_width=config.weight_nn_width,
-            weight_nn_bias=config.weight_nn_bias,
-            weight_nn_gain=config.weight_nn_init_gain,
+            weight_nn_bias=True,
+            weight_nn_gain=1,
             displacement_method=config.displacement_method,
-            num_components=config.num_components
+            num_components=1
         )
         self.deformation_field = deformation_config.setup()
     
     def get_mixing_coefficient(self, positions: Tensor, times: Union[Tensor, float]) -> Tensor:
-        """Get the mixing coefficient using the neural network.
+        """Get the mixing coefficient using the temporal B-spline field.
         
         Args:
             positions: positions of shape [ray, nsamples, 3]
@@ -123,10 +133,33 @@ class SpatioTemporalMixer(FieldMixer):
         Returns:
             Tensor: mixing coefficients of shape [ray, nsamples, 1]
         """
+        # ensure positions are 2d
+        shape = positions.shape[:-1]
+        positions = positions.view(-1, 3)
         if isinstance(times, float):
-            times = torch.ones_like(positions[...,0:1]) * times
+            times = positions.new_ones(1) * times
+        times = times.view(-1, 1)
         alpha = self.deformation_field.displacement(positions, times)
+        alpha = alpha.view(*shape, 1)
         return torch.sigmoid(alpha)
+    
+    def get_mean_amplitude(self):
+        t = torch.rand(1000, device=self.device)
+        pos = torch.rand(1000, 3, device=self.device)
+        alpha = self.get_mixing_coefficient(pos, t)
+        return alpha.mean()
+    
+    def get_std_amplitude(self):
+        t = torch.rand(1000, device=self.device)
+        pos = torch.rand(1000, 3, device=self.device)
+        alpha = self.get_mixing_coefficient(pos, t)
+        return alpha.std()
+    
+    def get_mean_std_amplitude(self):
+        t = torch.rand(1000, device=self.device)
+        pos = torch.rand(1000, 3, device=self.device)
+        alpha = self.get_mixing_coefficient(pos, t)
+        return alpha.mean(), alpha.std()
     
 @dataclass
 class TemporalMixerConfig(FieldMixerConfig):
@@ -146,11 +179,34 @@ class TemporalMixer(FieldMixer):
         super().__init__(config)
         self.config = config
         self.mixing_field = BSplineField1d(
-            torch.nn.parameter.Parameter(torch.zeros(10)), 
+            phi_x=torch.nn.parameter.Parameter(torch.zeros(10)), 
             support_outside=True, 
             support_range=(0,1) # time range
         )
     
     def get_mixing_coefficient(self, positions: Tensor, times: Tensor) -> Tensor:
-        alpha = self.mixing_field(times)
+        # times could be coming in with various shapes
+        # if we only have one time, call it with a one-element tensor
+        # else call on 1d view
+        t = times.flatten()
+        if t.unique().numel() == 1:
+            alpha = self.mixing_field(t[0].view(1))[0]
+        else:
+            alpha = self.mixing_field(t)
+            alpha = alpha.view_as(times)
         return torch.sigmoid(alpha)
+
+    def get_mean_amplitude(self):
+        t = torch.linspace(0, 1, 21, device=self.device)
+        alpha = self.get_mixing_coefficient(None, t)
+        return alpha.mean()
+    
+    def get_std_amplitude(self):
+        t = torch.linspace(0, 1, 21, device=self.device)
+        alpha = self.get_mixing_coefficient(None, t)
+        return alpha.std()
+    
+    def get_mean_std_amplitude(self):
+        t = torch.linspace(0, 1, 21, device=self.device)
+        alpha = self.get_mixing_coefficient(None, t)
+        return alpha.mean(), alpha.std()
