@@ -19,6 +19,7 @@ from nerfstudio.plugins.types import MethodSpecification
 from nerf_xray.xray_temporal_datamanager import XrayTemporalDataManagerConfig
 from nerf_xray.template_dataparser import TemplateDataParserConfig
 from nerf_xray.vfield_model import VfieldModelConfig
+from nerf_xray.field_mixers import SpatioTemporalMixerConfig, TemporalMixerConfig
 from nerf_xray.vfield_pipeline import VfieldPipelineConfig
 from nerf_xray.deformation_fields import BsplineTemporalIntegratedVelocityField3dConfig, BsplineTemporalDeformationField3dConfig
 from nerf_xray.utils import ColdRestartLinearDecaySchedulerConfig
@@ -61,13 +62,7 @@ mixing_vfield = MethodSpecification(
                     num_control_points=(4,4,4),
                     timedelta=0.05,
                 ),
-                field_weighing=BsplineTemporalDeformationField3dConfig(
-                    support_range=[(-1,1),(-1,1),(-1,1)],
-                    num_control_points=(6,6,6),
-                    num_components=1,
-                    weight_nn_bias=True,
-                    weight_nn_init_gain=0.1,
-                ),
+                field_weighing=TemporalMixerConfig(num_control_points=10),
                 train_field_weighing=True,
                 train_density_field=False,
                 train_deformation_field=False,

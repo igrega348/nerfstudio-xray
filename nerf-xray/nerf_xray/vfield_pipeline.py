@@ -270,7 +270,7 @@ class VfieldPipeline(VanillaPipeline):
     def get_flat_field_penalty(self):
         return -self.config.flat_field_loss_multiplier*self.model.flat_field.phi_x.mean()
 
-    def get_fields_mismatch_penalty(self, reduction: Literal['mean','sum','none'] = 'sum', npoints: Optional[int] = None):
+    def get_fields_mismatch_penalty(self, reduction: Literal['mean','sum','none'] = 'mean', npoints: Optional[int] = None):
         if self.model.config.direction != 'both':
             return torch.zeros(1, device=self.device)
         # sample time

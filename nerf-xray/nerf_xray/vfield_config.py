@@ -20,6 +20,7 @@ from nerf_xray.xray_temporal_datamanager import XrayTemporalDataManagerConfig
 from nerf_xray.template_dataparser import TemplateDataParserConfig
 from nerf_xray.vfield_model import VfieldModelConfig
 from nerf_xray.vfield_pipeline import VfieldPipelineConfig
+from nerf_xray.field_mixers import ConstantMixerConfig
 from nerf_xray.deformation_fields import BsplineTemporalIntegratedVelocityField3dConfig, DeformationFieldConfig
 from nerf_xray.utils import ColdRestartLinearDecaySchedulerConfig
 
@@ -63,7 +64,7 @@ xray_vfield = MethodSpecification(
                     num_control_points=(4,4,4),
                     timedelta=0.05,
                 ),
-                field_weighing=DeformationFieldConfig(),
+                field_weighing=ConstantMixerConfig(alpha=0.5),
                 train_field_weighing=False,
             ),
             volumetric_supervision=False,

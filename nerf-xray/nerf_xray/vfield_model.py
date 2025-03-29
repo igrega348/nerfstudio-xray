@@ -41,6 +41,7 @@ from nerfstudio.data.scene_box import OrientedBox, SceneBox
 from torch import Tensor
 from torch.nn import Parameter
 
+from nerf_xray.field_mixers import FieldMixerConfig
 from .deformation_fields import (AffineTemporalDeformationField,
                                  BsplineTemporalDeformationField1d,
                                  BsplineTemporalDeformationField3d,
@@ -67,7 +68,7 @@ class VfieldModelConfig(NerfactoModelConfig):
     """whether to train the deformation field"""
     deformation_field: DeformationFieldConfig = DeformationFieldConfig()
     """Forward deformation field"""
-    field_weighing: DeformationFieldConfig = DeformationFieldConfig()
+    field_weighing: FieldMixerConfig = FieldMixerConfig()
     """Field weighing"""
     flat_field_value: float = 0.0
     """initial value of flat field"""
@@ -363,11 +364,6 @@ class VfieldModel(Model):
             outputs[output_name] = torch.cat(outputs_list).view(image_height, image_width, -1)  # type: ignore
         return outputs
 
-    def get_mixing_coefficient(self, positions: Tensor, times: Tensor):
-        alphas = self.field_weighing.displacement(positions, times) # 1 scalar per ray
-        alphas = torch.nn.functional.sigmoid(alphas)
-        return alphas
-
     def mix_two_fields(self, field_0_outputs: Union[Dict, Tensor], field_1_outputs: Union[Dict, Tensor], alphas: Union[Tensor, float]) -> Union[Dict, Tensor]:
         if isinstance(field_0_outputs, Tensor):
             assert isinstance(field_1_outputs, Tensor)
@@ -377,16 +373,6 @@ class VfieldModel(Model):
             for key in field_0_outputs:
                 field_outputs[key] = (1-alphas) * field_0_outputs[key] + alphas * field_1_outputs[key]
         return field_outputs
-
-    def get_mixing_coefficient(self, positions: Tensor, times: Union[Tensor, float]) -> Union[float, Tensor]:
-        if self.config.disable_mixing:
-            alphas = 0.5
-        else:
-            if isinstance(times, float):
-                times = positions.new_ones(*positions.shape[:-1], 1)*times
-            alphas = self.field_weighing.displacement(positions, times) # 1 scalar per ray
-            alphas = torch.nn.functional.sigmoid(alphas)
-        return alphas
 
     @contextmanager
     def empty_context_manager(self):
@@ -420,7 +406,7 @@ class VfieldModel(Model):
         if which=='backward':
             return density_1
         assert density_0 is not None and density_1 is not None
-        alphas = self.get_mixing_coefficient(positions, time)
+        alphas = self.field_weighing.get_mixing_coefficient(positions, time)
         density = self.mix_two_fields(density_0, density_1, alphas) # type: ignore
         return density
 
@@ -459,7 +445,7 @@ class VfieldModel(Model):
             else:
                 field_f_outputs = self.field_f.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,0.0))
                 field_b_outputs = self.field_b.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,1.0))
-                alphas = self.get_mixing_coefficient(ray_samples.frustums.get_positions(), ray_samples.times)
+                alphas = self.field_weighing.get_mixing_coefficient(ray_samples.frustums.get_positions(), ray_samples.times)
                 field_outputs = self.mix_two_fields(field_f_outputs, field_b_outputs, alphas)
         
         if self.config.use_gradient_scaling:
@@ -469,7 +455,6 @@ class VfieldModel(Model):
         weights_list.append(weights)
         ray_samples_list.append(ray_samples)
 
-        # rgb = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB], weights=weights)
         with torch.no_grad():
             depth = self.renderer_depth(weights=weights, ray_samples=ray_samples)
         expected_depth = self.renderer_expected_depth(weights=weights, ray_samples=ray_samples)

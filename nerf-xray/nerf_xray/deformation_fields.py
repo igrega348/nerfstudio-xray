@@ -562,7 +562,7 @@ class BsplineTemporalDeformationField3dConfig(DeformationFieldConfig):
     """Width of the neural network for the weights"""
     weight_nn_bias: bool = False
     """Whether to use bias in the neural network for the weights"""
-    weight_nn_init_gain: float = 1e-3
+    weight_nn_gain: float = 1e-3
     """Initialization gain for the weights of the final layer"""
     displacement_method: Literal['neighborhood','matrix'] = 'matrix'
     """Whether to use neighborhood calculation of bsplines or assemble full matrix""" 
@@ -596,7 +596,7 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
             num_control_points=self.config.num_components*np.prod(num_control_points), 
             depth=3, 
             width=weight_nn_width, 
-            init_gain=config.weight_nn_init_gain, 
+            init_gain=config.weight_nn_gain, 
             bias=config.weight_nn_bias
         )
         self.bspline_field = BSplineField3d(
