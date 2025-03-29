@@ -563,7 +563,7 @@ class BsplineTemporalDeformationField3dConfig(DeformationFieldConfig):
     weight_nn_bias: bool = False
     """Whether to use bias in the neural network for the weights"""
     weight_nn_init_gain: float = 1e-3
-    """Initialization gain for the weights"""
+    """Initialization gain for the weights of the final layer"""
     displacement_method: Literal['neighborhood','matrix'] = 'matrix'
     """Whether to use neighborhood calculation of bsplines or assemble full matrix""" 
     num_components: int = 3
@@ -592,8 +592,19 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
         assert phi_x is None
         assert num_control_points is not None
         self.phi_x = None
-        self.weight_nn = NeuralPhiX(self.config.num_components*np.prod(num_control_points), 3, weight_nn_width, init_gain=config.weight_nn_init_gain, bias=config.weight_nn_bias)
-        self.bspline_field = BSplineField3d(support_outside=support_outside, support_range=support_range, num_control_points=num_control_points, num_components=config.num_components)
+        self.weight_nn = NeuralPhiX(
+            num_control_points=self.config.num_components*np.prod(num_control_points), 
+            depth=3, 
+            width=weight_nn_width, 
+            init_gain=config.weight_nn_init_gain, 
+            bias=config.weight_nn_bias
+        )
+        self.bspline_field = BSplineField3d(
+            support_outside=support_outside, 
+            support_range=support_range, 
+            num_control_points=num_control_points, 
+            num_components=config.num_components
+        )
         self.register_buffer('support_range', torch.tensor(support_range))
         self.warning_printed = False
         if config.displacement_method=='matrix':
