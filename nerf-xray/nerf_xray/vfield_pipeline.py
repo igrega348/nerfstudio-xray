@@ -135,7 +135,11 @@ class VfieldPipeline(VanillaPipeline):
     
     @profiler.time_function
     def get_average_eval_image_metrics(
-        self, step: Optional[int] = None, output_path: Optional[Path] = None, get_std: bool = False
+        self, 
+        step: Optional[int] = None, 
+        output_path: Optional[Path] = None, 
+        get_std: bool = False, 
+        which: Optional[Literal['forward','backward','mixed']] = None
     ):
         """Iterate over all the images in the eval dataset and get the average.
 
@@ -143,6 +147,7 @@ class VfieldPipeline(VanillaPipeline):
             step: current training step
             output_path: optional path to save rendered images to
             get_std: Set True if you want to return std with the mean metric.
+            which: which field to evaluate
 
         Returns:
             metrics_dict: dictionary of metrics
@@ -163,7 +168,7 @@ class VfieldPipeline(VanillaPipeline):
             for camera, batch in self.datamanager.fixed_indices_eval_dataloader:
                 # time this the following line
                 inner_start = time()
-                outputs = self.model.get_outputs_for_camera(camera=camera)
+                outputs = self.model.get_outputs_for_camera(camera=camera, which=which)
                 height, width = camera.height, camera.width
                 num_rays = height * width
                 metrics_dict, _ = self.model.get_image_metrics_and_images(outputs, batch)
@@ -175,6 +180,8 @@ class VfieldPipeline(VanillaPipeline):
                 fps_str = "fps"
                 assert fps_str not in metrics_dict
                 metrics_dict[fps_str] = (metrics_dict["num_rays_per_sec"] / (height * width)).item()
+                # Save image time to metrics dict
+                metrics_dict["image_idx"] = float(batch['image_idx'])  # Which image
                 metrics_dict_list.append(metrics_dict)
                 progress.advance(task)
         # average the metrics list
@@ -190,9 +197,8 @@ class VfieldPipeline(VanillaPipeline):
                 metrics_dict[key] = float(
                     torch.mean(torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list]))
                 )
-        if self.datamanager.object is not None:
-            # evaluate volumetric loss on a 100x100x100 grid
-            metrics_dict.update(self.calculate_density_loss())
+        # Store non-averaged metrics list
+        metrics_dict['metrics_list'] = metrics_dict_list
         self.train()
         return metrics_dict
     
