@@ -144,21 +144,18 @@ class SpatioTemporalMixer(FieldMixer):
         return torch.sigmoid(alpha)
     
     def get_mean_amplitude(self):
-        t = torch.rand(1000, device=self.device)
-        pos = torch.rand(1000, 3, device=self.device)
-        alpha = self.get_mixing_coefficient(pos, t)
-        return alpha.mean()
+        return self.get_mean_std_amplitude()[0]
     
     def get_std_amplitude(self):
-        t = torch.rand(1000, device=self.device)
-        pos = torch.rand(1000, 3, device=self.device)
-        alpha = self.get_mixing_coefficient(pos, t)
-        return alpha.std()
+        return self.get_mean_std_amplitude()[1]
     
     def get_mean_std_amplitude(self):
-        t = torch.rand(1000, device=self.device)
-        pos = torch.rand(1000, 3, device=self.device)
-        alpha = self.get_mixing_coefficient(pos, t)
+        pos = 2*torch.rand(1000, 3, device=self.device) - 1
+        alpha = []
+        for t in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
+            _alpha = self.get_mixing_coefficient(pos, t).mean().item()
+            alpha.append(_alpha)
+        alpha = np.array(alpha)
         return alpha.mean(), alpha.std()
     
 @dataclass

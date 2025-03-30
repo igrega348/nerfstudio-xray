@@ -199,6 +199,12 @@ class VfieldPipeline(VanillaPipeline):
                 height, width = camera.height, camera.width
                 num_rays = height * width
                 metrics_dict, _ = self.model.get_image_metrics_and_images(outputs, batch)
+                loss_dict = self.model.get_loss_dict(outputs, batch, metrics_dict)
+                # convert any tensors to floats
+                for key in loss_dict.keys():
+                    if isinstance(loss_dict[key], torch.Tensor):
+                        loss_dict[key] = loss_dict[key].item()
+                        
                 if output_path is not None:
                     raise NotImplementedError("Saving images is not implemented yet")
 
@@ -207,13 +213,19 @@ class VfieldPipeline(VanillaPipeline):
                 fps_str = "fps"
                 assert fps_str not in metrics_dict
                 metrics_dict[fps_str] = (metrics_dict["num_rays_per_sec"] / (height * width)).item()
-                # Save image time to metrics dict
-                metrics_dict["image_idx"] = float(batch['image_idx'])  # Which image
+                # Save image info to metrics dict
+                image_idx = batch['image_idx']
+                img_filename = self.datamanager.eval_dataset.image_filenames[image_idx]
+                metrics_dict["image_name"] = img_filename.as_posix()
+                metrics_dict["image_time"] = camera.times.item()
+                metrics_dict.update(loss_dict) # try sticking it into metrics dict
                 metrics_dict_list.append(metrics_dict)
                 progress.advance(task)
         # average the metrics list
         metrics_dict = {}
         for key in metrics_dict_list[0].keys():
+            if isinstance(metrics_dict_list[0][key], str):
+                continue # cannot average strings
             if get_std:
                 key_std, key_mean = torch.std_mean(
                     torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list])
@@ -226,6 +238,7 @@ class VfieldPipeline(VanillaPipeline):
                 )
         # Store non-averaged metrics list
         metrics_dict['metrics_list'] = metrics_dict_list
+
         self.train()
         return metrics_dict
 

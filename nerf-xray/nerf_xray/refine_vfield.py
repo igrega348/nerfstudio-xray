@@ -91,7 +91,7 @@ def main(
             plt.plot(z.cpu(), u[:,2].cpu(), label=f'{t:.2f}', ls='--', color=f'C{i}')
             u = new_df(pos, time, 1.0) - pos
             plt.plot(z.cpu(), u[:,2].cpu(), label=f'{t:.2f}', color=f'C{i}')
-    plt.savefig(ckpt_path.with_name('def_field_refining.png'))
+    plt.savefig(ckpt_path.parent.parent/'def_field_refining.png')
     plt.close()
 
     data = torch.load(ckpt_path, weights_only=False)
