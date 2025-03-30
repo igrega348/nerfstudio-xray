@@ -40,6 +40,10 @@ class XrayTemporalDataManagerConfig(VanillaDataManagerConfig):
     """Until this time prefer early timestamps"""
     max_images_per_timestamp: Optional[int] = 1<<26
     """Maximum number of images per timestamp"""
+    save_sampling_locations: bool = False
+    """save sampling locations"""
+    visualize_sampling_locations: bool = False
+    """visualize sampling locations"""
 
 
 TDataset = TypeVar("TDataset", bound=InputDataset, default=InputDataset)
@@ -125,8 +129,88 @@ class XrayTemporalDataManager(VanillaDataManager, Generic[TDataset]):
         batch = self.train_pixel_sampler.sample(image_batch)
         ray_indices = batch["indices"]
         ray_bundle = self.train_ray_generator(ray_indices)
+        
+        # Save sampling locations if needed
+        if self.config.save_sampling_locations:
+            self._save_sampling_locations(ray_indices, step)
+            
+        # Visualize sampling locations if needed
+        if self.config.visualize_sampling_locations:
+            self._visualize_sampling_locations(ray_indices, image_batch, step)
+            
         return ray_bundle, batch
-    
+
+    def _save_sampling_locations(self, indices: torch.Tensor, step: int):
+        """Save sampled pixel locations to a file.
+        
+        Args:
+            indices: Tensor of shape (N, 3) containing (image_idx, y, x) coordinates
+            step: Current training step
+        """
+        from pathlib import Path
+        
+        # Create output directory if it doesn't exist
+        output_dir = Path("sampling_locations")
+        output_dir.mkdir(exist_ok=True)
+        
+        # Get unique image indices
+        unique_image_indices = torch.unique(indices[:, 0])
+        
+        # Create a dictionary to store data for each image
+        sampling_data = {}
+        
+        for img_idx in unique_image_indices:
+            # Get pixels sampled from this image
+            img_indices = indices[indices[:, 0] == img_idx]
+            
+            # Get the image filename from the dataset
+            img_filename = self.train_dataset.image_filenames[int(img_idx)]
+            
+            # Store data for this image
+            sampling_data[int(img_idx)] = {
+                'filename': img_filename,
+                'indices': img_indices.cpu().numpy()
+            }
+        
+        # Save the data
+        np.save(output_dir / f"sampling_locations_step_{step}.npy", sampling_data)
+
+    def _visualize_sampling_locations(self, indices: torch.Tensor, image_batch: Dict, step: int):
+        """Visualize sampled pixel locations on the images.
+        
+        Args:
+            indices: Tensor of shape (N, 3) containing (image_idx, y, x) coordinates
+            image_batch: Batch of images
+            step: Current training step
+        """
+        import matplotlib.pyplot as plt
+        from pathlib import Path
+        
+        # Create output directory if it doesn't exist
+        output_dir = Path("sampling_visualizations")
+        output_dir.mkdir(exist_ok=True)
+        
+        # Get unique image indices
+        unique_image_indices = torch.unique(indices[:, 0])
+        
+        for img_idx in unique_image_indices:
+            # Get pixels sampled from this image
+            img_indices = indices[indices[:, 0] == img_idx]
+            
+            # Get the image
+            img = image_batch["image"][int(img_idx)].cpu().numpy()
+            
+            # Create figure
+            plt.figure(figsize=(10, 10))
+            plt.imshow(img)
+            
+            # Plot sampled points
+            plt.scatter(img_indices[:, 2], img_indices[:, 1], c='red', s=1, alpha=0.5)
+            
+            # Save plot
+            plt.savefig(output_dir / f"sampling_step_{step}_image_{int(img_idx)}.png")
+            plt.close()
+
     def setup_eval(self):
         """Sets up the data loader for evaluation"""
         assert self.eval_dataset is not None
