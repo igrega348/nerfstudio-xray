@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from nerfstudio.configs.config_utils import to_immutable_dict
+from nerfstudio.cameras.rays import RaySamples
 from nerfstudio.configs.base_config import InstantiateConfig
 from nerf_xray.deformation_fields import BsplineTemporalDeformationField3d, BsplineTemporalDeformationField3dConfig, BSplineField1d
 
@@ -207,3 +207,23 @@ class TemporalMixer(FieldMixer):
         t = torch.linspace(0, 1, 21, device=self.device)
         alpha = self.get_mixing_coefficient(None, t)
         return alpha.mean(), alpha.std()
+
+
+class SpatiotemporalMixingRenderer(torch.nn.Module):
+    """Spatiotemporal mixing renderer"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        
+    @classmethod
+    def forward(
+        cls,
+        alphas: Tensor,
+        ray_samples: RaySamples,
+    ) -> Tensor:
+        positions = ray_samples.frustums.get_positions() # [ray, nsamples, 3]
+        # select positions within scene box (-1 to 1)
+        mask = torch.all((positions >= -1) & (positions <= 1), dim=-1, keepdim=True) # [ray, nsamples, 1]
+        delta_alpha = ray_samples.deltas * alphas * mask # [ray, nsamples, 1]
+        acc_alpha = torch.sum(delta_alpha, dim=-2) # [ray, 1]   
+        return acc_alpha

@@ -41,7 +41,7 @@ from nerfstudio.data.scene_box import OrientedBox, SceneBox
 from torch import Tensor
 from torch.nn import Parameter
 
-from nerf_xray.field_mixers import FieldMixerConfig
+from nerf_xray.field_mixers import FieldMixerConfig, SpatiotemporalMixingRenderer
 from .deformation_fields import (AffineTemporalDeformationField,
                                  BsplineTemporalDeformationField1d,
                                  BsplineTemporalDeformationField3d,
@@ -225,6 +225,8 @@ class VfieldModel(Model):
             background_color=self.config.background_color,
             )
         self.renderer_rgb = self.renderer_attenuation
+        self.spatiotemporal_mixing_renderer = SpatiotemporalMixingRenderer()
+        
         ff = self.kwargs['metadata'].get('flat_field', None)
         if ff is not None:
             _ff = -np.log(ff)
@@ -463,13 +465,7 @@ class VfieldModel(Model):
         flat_field = self.flat_field(ray_bundle.times.view(-1)).view(-1,1)
         rgb = self.renderer_attenuation.merge_flat_field(attenuation, flat_field) * attenuation.new_ones(1,3)
         if alphas is not None and not self.training:
-            delta_alpha = ray_samples.deltas * alphas
-            # Only consider positions within scene box (-1 to 1)
-            # positions = ray_samples.frustums.get_positions()
-            # mask = torch.all((positions >= -1) & (positions <= 1), dim=-1)
-            # # Select only valid samples and compute mean
-            # valid_delta_alpha = delta_alpha[mask]
-            acc_alpha = torch.sum(delta_alpha, dim=-2)
+            acc_alpha = self.spatiotemporal_mixing_renderer(alphas, ray_samples)
 
         outputs = {
             "rgb": rgb,
@@ -586,7 +582,7 @@ class VfieldModel(Model):
             "diff_rgb": diff_rgb,
         }
         if "acc_alpha" in outputs:
-            images_dict["acc_alpha"] = colormaps.apply_colormap(outputs["acc_alpha"], colormaps.ColormapOptions(normalize=True))
+            images_dict["acc_alpha"] = colormaps.apply_colormap(outputs["acc_alpha"], colormaps.ColormapOptions(normalize=False))
 
         for i in range(self.config.num_proposal_iterations):
             key = f"prop_depth_{i}"
