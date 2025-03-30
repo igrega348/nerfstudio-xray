@@ -34,8 +34,8 @@ class AttenuationRenderer(nn.Module):
     ) -> Float[Tensor, "*batch 1"]:
 
         delta_density = ray_samples.deltas * densities
-        acc = torch.sum(delta_density, dim=-2)            
-        attenuation = torch.exp(-acc) 
+        acc = torch.sum(delta_density, dim=-2)
+        attenuation = torch.exp(-acc)
         attenuation = torch.nan_to_num(attenuation)
         return attenuation
     

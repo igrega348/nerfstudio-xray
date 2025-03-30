@@ -138,7 +138,7 @@ class SpatioTemporalMixer(FieldMixer):
         positions = positions.view(-1, 3)
         if isinstance(times, float):
             times = positions.new_ones(1) * times
-        times = times.view(-1, 1)
+        times = times.reshape(-1, 1)
         alpha = self.deformation_field.displacement(positions, times)
         alpha = alpha.view(*shape, 1)
         return torch.sigmoid(alpha)

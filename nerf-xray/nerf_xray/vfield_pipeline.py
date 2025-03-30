@@ -106,6 +106,35 @@ class VfieldPipeline(VanillaPipeline):
             dist.barrier(device_ids=[local_rank])
 
     @profiler.time_function
+    def get_train_loss_dict(self, step: int):
+        """This function gets your training loss dict. This will be responsible for
+        getting the next batch of data from the DataManager and interfacing with the
+        Model class, feeding the data to the model's forward function.
+
+        Args:
+            step: current iteration step to update sampler if using DDP (distributed)
+        """
+        ray_bundle, batch = self.datamanager.next_train(step)
+        model_outputs = self._model(ray_bundle)  # train distributed data parallel model if world_size > 1
+        metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
+        loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
+
+        loss_dict['flat_field_loss'] = self.get_flat_field_penalty()
+
+        if self.config.density_mismatch_start_step>=0 and step>self.config.density_mismatch_start_step and (self.model.field_f is not None) and (self.model.field_b is not None):
+            loss_dict.update({'mismatch_penalty':self.config.density_mismatch_coefficient*self.get_fields_mismatch_penalty()})
+        
+        
+        if self.config.volumetric_supervision and step>self.config.volumetric_supervision_start_step:
+            # provide supervision to visual training. Use cross-corelation loss
+            density_loss = self.calculate_density_loss(sampling='random')
+            loss_dict[f'volumetric_loss_0'] = self.config.volumetric_supervision_coefficient*(1-density_loss['normed_correlation'])
+            density_loss = self.calculate_density_loss(sampling='random', time=1.0)
+            loss_dict[f'volumetric_loss_1'] = self.config.volumetric_supervision_coefficient*(1-density_loss['normed_correlation'])
+
+        return model_outputs, loss_dict, metrics_dict
+
+    @profiler.time_function
     def get_eval_loss_dict(self, step: int) -> Tuple[Any, Dict[str, Any], Dict[str, Any]]:
         """This function gets your evaluation loss dict. It needs to get the data
         from the DataManager and feed it to the model's forward function
@@ -199,26 +228,6 @@ class VfieldPipeline(VanillaPipeline):
         metrics_dict['metrics_list'] = metrics_dict_list
         self.train()
         return metrics_dict
-    
-    def calculate_density_loss(self, sampling: str = 'random', time: float = 0.0) -> Dict[str, Any]:
-        if sampling=='grid':
-            pos = torch.linspace(-0.7, 0.7, 200, device=self.device) # scene box goes between -1 and 1 
-            pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
-        elif sampling=='random':
-            pos = (torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 0.5) * 1.4
-        if time==0.0:
-            density_0 = self.model.get_density_from_pos(pos, time=0.0, which='backward').squeeze() # points sampled at 0.0
-            density_1 = self.model.get_density_from_pos(pos, time=0.0, which='forward').squeeze()
-        elif time==1.0:
-            density_0 = self.model.get_density_from_pos(pos, time=1.0, which='forward').squeeze()
-            density_1 = self.model.get_density_from_pos(pos, time=1.0, which='backward').squeeze()
-        else:
-            raise ValueError(f'Time {time} not supported')
-        
-        normed_correlation = self.calculate_normed_correlation(x=density_0, y=density_1)
-        return {
-            'normed_correlation': normed_correlation
-            }
 
     def get_eval_density_loss(
         self, 
@@ -254,74 +263,6 @@ class VfieldPipeline(VanillaPipeline):
             'normed_correlation_f': normed_correlation_f,
             'normed_correlation_b': normed_correlation_b,
             }
-
-    @staticmethod
-    def calculate_normed_correlation(x, y):
-        mux = x.mean()
-        muy = y.mean()
-        dx = x-mux
-        dy = y-muy
-        normed_correlation = torch.sum(dx*dy) / torch.sqrt(dx.pow(2).sum() * dy.pow(2).sum())
-        return normed_correlation
-
-    def get_flat_field_penalty(self):
-        return -self.config.flat_field_loss_multiplier*self.model.flat_field.phi_x.mean()
-
-    def get_fields_mismatch_penalty(self, reduction: Literal['mean','sum','none'] = 'mean', npoints: Optional[int] = None):
-        if self.model.config.direction != 'both':
-            return torch.zeros(1, device=self.device)
-        # sample time
-        times = torch.linspace(0, 1, 11, device=self.device) # 0 to 1
-        if self.training: # perturb
-            times += (torch.rand(11)-0.5)*0.1
-        diffs = []
-        if npoints is None:
-            npoints = self.config.datamanager.train_num_rays_per_batch*32
-        for i,t in enumerate(times):
-            pos = (2*torch.rand((npoints, 3), device=self.device) - 1.0) * 0.7 # +0.7 to -0.7
-            diff = self.model.get_density_difference(pos, t.item()).pow(2).mean().view(1)
-            diffs.append(diff)
-        if len(diffs)>0:
-            if reduction=='sum':
-                loss = torch.cat(diffs).sum()
-            elif reduction=='mean':
-                loss = torch.cat(diffs).mean()
-            elif reduction=='none':
-                loss = torch.cat(diffs)
-            else:
-                raise ValueError(f'`reduction` {reduction} not recognized')
-        else:
-            loss = t.new_zeros(1)
-        return loss
-
-    @profiler.time_function
-    def get_train_loss_dict(self, step: int):
-        """This function gets your training loss dict. This will be responsible for
-        getting the next batch of data from the DataManager and interfacing with the
-        Model class, feeding the data to the model's forward function.
-
-        Args:
-            step: current iteration step to update sampler if using DDP (distributed)
-        """
-        ray_bundle, batch = self.datamanager.next_train(step)
-        model_outputs = self._model(ray_bundle)  # train distributed data parallel model if world_size > 1
-        metrics_dict = self.model.get_metrics_dict(model_outputs, batch)
-        loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
-
-        loss_dict['flat_field_loss'] = self.get_flat_field_penalty()
-
-        if self.config.density_mismatch_start_step>=0 and step>self.config.density_mismatch_start_step and (self.model.field_f is not None) and (self.model.field_b is not None):
-            loss_dict.update({'mismatch_penalty':self.config.density_mismatch_coefficient*self.get_fields_mismatch_penalty()})
-        
-        
-        if self.config.volumetric_supervision and step>self.config.volumetric_supervision_start_step:
-            # provide supervision to visual training. Use cross-corelation loss
-            density_loss = self.calculate_density_loss(sampling='random')
-            loss_dict[f'volumetric_loss_0'] = self.config.volumetric_supervision_coefficient*(1-density_loss['normed_correlation'])
-            density_loss = self.calculate_density_loss(sampling='random', time=1.0)
-            loss_dict[f'volumetric_loss_1'] = self.config.volumetric_supervision_coefficient*(1-density_loss['normed_correlation'])
-
-        return model_outputs, loss_dict, metrics_dict
     
     def eval_along_plane(
         self, 
@@ -387,3 +328,62 @@ class VfieldPipeline(VanillaPipeline):
             return density
         else:
             raise ValueError(f"Invalid engine {engine}")
+
+    def calculate_density_loss(self, sampling: str = 'random', time: float = 0.0) -> Dict[str, Any]:
+        if sampling=='grid':
+            pos = torch.linspace(-0.7, 0.7, 200, device=self.device) # scene box goes between -1 and 1 
+            pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
+        elif sampling=='random':
+            pos = (torch.rand((self.config.datamanager.train_num_rays_per_batch*32, 3), device=self.device) - 0.5) * 1.4
+        if time==0.0:
+            density_0 = self.model.get_density_from_pos(pos, time=0.0, which='backward').squeeze() # points sampled at 0.0
+            density_1 = self.model.get_density_from_pos(pos, time=0.0, which='forward').squeeze()
+        elif time==1.0:
+            density_0 = self.model.get_density_from_pos(pos, time=1.0, which='forward').squeeze()
+            density_1 = self.model.get_density_from_pos(pos, time=1.0, which='backward').squeeze()
+        else:
+            raise ValueError(f'Time {time} not supported')
+        
+        normed_correlation = self.calculate_normed_correlation(x=density_0, y=density_1)
+        return {
+            'normed_correlation': normed_correlation
+            }
+    
+    @staticmethod
+    def calculate_normed_correlation(x, y):
+        mux = x.mean()
+        muy = y.mean()
+        dx = x-mux
+        dy = y-muy
+        normed_correlation = torch.sum(dx*dy) / torch.sqrt(dx.pow(2).sum() * dy.pow(2).sum())
+        return normed_correlation
+
+    def get_flat_field_penalty(self):
+        return -self.config.flat_field_loss_multiplier*self.model.flat_field.phi_x.mean()
+
+    def get_fields_mismatch_penalty(self, reduction: Literal['mean','sum','none'] = 'mean', npoints: Optional[int] = None):
+        if self.model.config.direction != 'both':
+            return torch.zeros(1, device=self.device)
+        # sample time
+        times = torch.linspace(0, 1, 11, device=self.device) # 0 to 1
+        if self.training: # perturb
+            times += (torch.rand(11)-0.5)*0.1
+        diffs = []
+        if npoints is None:
+            npoints = self.config.datamanager.train_num_rays_per_batch*32
+        for i,t in enumerate(times):
+            pos = (2*torch.rand((npoints, 3), device=self.device) - 1.0) * 0.7 # +0.7 to -0.7
+            diff = self.model.get_density_difference(pos, t.item()).pow(2).mean().view(1)
+            diffs.append(diff)
+        if len(diffs)>0:
+            if reduction=='sum':
+                loss = torch.cat(diffs).sum()
+            elif reduction=='mean':
+                loss = torch.cat(diffs).mean()
+            elif reduction=='none':
+                loss = torch.cat(diffs)
+            else:
+                raise ValueError(f'`reduction` {reduction} not recognized')
+        else:
+            loss = t.new_zeros(1)
+        return loss

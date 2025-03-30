@@ -431,7 +431,7 @@ class VfieldModel(Model):
         # apply the camera optimizer pose tweaks
         ray_samples: RaySamples
         ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
-        # do the mixing now
+        alphas = acc_alpha= None
         if self.config.disable_mixing and self.training:
             if self.step%10<5:
                 field_outputs = self.field_f.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,0.0))
@@ -462,6 +462,14 @@ class VfieldModel(Model):
         attenuation = self.renderer_attenuation(densities=field_outputs[FieldHeadNames.DENSITY], ray_samples=ray_samples)
         flat_field = self.flat_field(ray_bundle.times.view(-1)).view(-1,1)
         rgb = self.renderer_attenuation.merge_flat_field(attenuation, flat_field) * attenuation.new_ones(1,3)
+        if alphas is not None and not self.training:
+            delta_alpha = ray_samples.deltas * alphas
+            # Only consider positions within scene box (-1 to 1)
+            # positions = ray_samples.frustums.get_positions()
+            # mask = torch.all((positions >= -1) & (positions <= 1), dim=-1)
+            # # Select only valid samples and compute mean
+            # valid_delta_alpha = delta_alpha[mask]
+            acc_alpha = torch.sum(delta_alpha, dim=-2)
 
         outputs = {
             "rgb": rgb,
@@ -470,6 +478,8 @@ class VfieldModel(Model):
             "expected_depth": expected_depth,
             "attenuation": attenuation,
         }
+        if acc_alpha is not None:
+            outputs["acc_alpha"] = acc_alpha
 
         if self.config.predict_normals:
             normals = self.renderer_normals(normals=field_outputs[FieldHeadNames.NORMALS], weights=weights)
@@ -569,7 +579,14 @@ class VfieldModel(Model):
         metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim)}  # type: ignore
         metrics_dict["lpips"] = float(lpips)
 
-        images_dict = {"img": combined_rgb, "accumulation": combined_acc, "depth": combined_depth, "diff_rgb": diff_rgb}
+        images_dict = {
+            "img": combined_rgb, 
+            "accumulation": combined_acc, 
+            "depth": combined_depth, 
+            "diff_rgb": diff_rgb,
+        }
+        if "acc_alpha" in outputs:
+            images_dict["acc_alpha"] = colormaps.apply_colormap(outputs["acc_alpha"], colormaps.ColormapOptions(normalize=True))
 
         for i in range(self.config.num_proposal_iterations):
             key = f"prop_depth_{i}"
