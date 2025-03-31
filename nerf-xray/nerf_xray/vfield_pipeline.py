@@ -261,6 +261,7 @@ class VfieldPipeline(VanillaPipeline):
 
         pred_density_f = self.model.field_f.get_density_from_pos(pos, deformation_field=lambda x,t: self.model.deformation_field(x,t,0.0), time=time).squeeze()
         pred_density_b = self.model.field_b.get_density_from_pos(pos, deformation_field=lambda x,t: self.model.deformation_field(x,t,1.0), time=time).squeeze()
+        mixed_density = self.model.get_density_from_pos(pos, time=time, which='mixed').squeeze()
 
         if target is None:
             assert time in [0.0, 1.0], "Time must be 0.0 or 1.0"
@@ -272,9 +273,11 @@ class VfieldPipeline(VanillaPipeline):
         
         normed_correlation_f = self.calculate_normed_correlation(x=density, y=pred_density_f)
         normed_correlation_b = self.calculate_normed_correlation(x=density, y=pred_density_b)
+        normed_correlation_mixed = self.calculate_normed_correlation(x=density, y=mixed_density)
         return {
             'normed_correlation_f': normed_correlation_f,
             'normed_correlation_b': normed_correlation_b,
+            'normed_correlation_mixed': normed_correlation_mixed,
             }
     
     def eval_along_plane(
@@ -300,13 +303,9 @@ class VfieldPipeline(VanillaPipeline):
         elif plane == 'xz':
             pos = torch.stack([A, C, B], dim=-1)
         if target in ['field', 'both']:
-            if which=='mixed': # have to propagate gradients
+            with torch.no_grad():
                 pred_density = self._model.get_density_from_pos(pos, time=time, which=which).squeeze()
-                pred_density = pred_density.detach().cpu().numpy() / rhomax
-            else:
-                with torch.no_grad():
-                    pred_density = self._model.get_density_from_pos(pos, time=time, which=which).squeeze()
-                pred_density = pred_density.cpu().numpy() / rhomax
+            pred_density = pred_density.cpu().numpy() / rhomax
         if target in ['datamanager', 'both']:
             pos_shape = pos.shape
             assert pos_shape[-1] == 3

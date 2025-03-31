@@ -41,7 +41,7 @@ from nerfstudio.data.scene_box import OrientedBox, SceneBox
 from torch import Tensor
 from torch.nn import Parameter
 
-from nerf_xray.field_mixers import FieldMixerConfig, SpatiotemporalMixingRenderer
+from nerf_xray.field_mixers import FieldMixerConfig, SpatiotemporalMixingRenderer, FieldMixer
 from .deformation_fields import (AffineTemporalDeformationField,
                                  BsplineTemporalDeformationField1d,
                                  BsplineTemporalDeformationField3d,
@@ -91,6 +91,7 @@ class VfieldModel(Model):
     """
 
     config: VfieldModelConfig
+    field_weighing: FieldMixer
 
     def populate_modules(self):
         """Set the fields and modules."""
@@ -408,7 +409,7 @@ class VfieldModel(Model):
         if which=='backward':
             return density_1
         assert density_0 is not None and density_1 is not None
-        alphas = self.field_weighing.get_mixing_coefficient(positions, time)
+        alphas = self.field_weighing.get_mixing_coefficient(positions, time).squeeze()
         density = self.mix_two_fields(density_0, density_1, alphas) # type: ignore
         return density
 
