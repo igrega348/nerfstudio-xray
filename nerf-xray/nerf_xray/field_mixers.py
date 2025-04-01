@@ -37,32 +37,32 @@ class FieldMixer(torch.nn.Module):
         self.config = config
     
     @abstractmethod
-    def get_mixing_coefficient(self, positions: Tensor, times: Tensor, step: int) -> Tensor:
+    def get_mixing_coefficient(self, positions: Tensor, times: Tensor, step: Optional[int]) -> Tensor:
         """Get the mixing coefficient
 
         Args:
             positions: positions of the points
             times: times of the points
-            step: step number
+            step: step number (optional)
         """
 
     @abstractmethod
-    def get_mean_amplitude(self, step: int) -> float:
+    def get_mean_amplitude(self) -> float:
         """Get the mean amplitude of the field mixer"""
         pass
 
     @abstractmethod
-    def get_std_amplitude(self, step: int) -> float:
+    def get_std_amplitude(self) -> float:
         """Get the standard deviation of the field mixer"""
         pass
     
     @abstractmethod
-    def get_mean_std_amplitude(self, step: int) -> Tuple[float, float]:
+    def get_mean_std_amplitude(self) -> Tuple[float, float]:
         """Get the mean and standard deviation of the field mixer"""
         pass
 
     @abstractmethod
-    def get_stat_dict(self, step: int) -> Dict[str, float]:
+    def get_stat_dict(self) -> Dict[str, float]:
         """Get the statistics of the field mixer"""
         pass
     
@@ -89,10 +89,10 @@ class ConstantMixer(torch.nn.Module):
         self.config = config
         self.register_parameter('alpha', torch.nn.parameter.Parameter(torch.tensor(config.alpha)))
     
-    def get_mixing_coefficient(self, positions: Tensor, times: Tensor, step: int) -> Tensor:
+    def get_mixing_coefficient(self, positions: Tensor, times: Tensor, step: Optional[int]) -> Tensor:
         return self.alpha
     
-    def get_stat_dict(self, step: int) -> Dict[str, float]:
+    def get_stat_dict(self) -> Dict[str, float]:
         return {'mean_mixing_amplitude': self.alpha.item(), 'std_mixing_amplitude': 0.0}
    
 @dataclass
@@ -132,13 +132,13 @@ class SpatioTemporalMixer(FieldMixer):
         )
         self.deformation_field = deformation_config.setup()
     
-    def get_mixing_coefficient(self, positions: Tensor, times: Union[Tensor, float], step: int) -> Tensor:
+    def get_mixing_coefficient(self, positions: Tensor, times: Union[Tensor, float], step: Optional[int]) -> Tensor:
         """Get the mixing coefficient using the temporal B-spline field.
         
         Args:
             positions: positions of shape [ray, nsamples, 3]
             times: times of shape [ray, nsamples, 1] or float
-            step: step number
+            step: step number (optional)
         Returns:
             Tensor: mixing coefficients of shape [ray, nsamples, 1]
         """
@@ -152,23 +152,23 @@ class SpatioTemporalMixer(FieldMixer):
         alpha = alpha.view(*shape, 1)
         return torch.sigmoid(alpha)
     
-    def get_mean_amplitude(self, step: int):
-        return self.get_mean_std_amplitude(step)[0]
+    def get_mean_amplitude(self):
+        return self.get_mean_std_amplitude()[0]
     
-    def get_std_amplitude(self, step: int):
-        return self.get_mean_std_amplitude(step)[1]
+    def get_std_amplitude(self):
+        return self.get_mean_std_amplitude()[1]
     
-    def get_mean_std_amplitude(self, step: int):
+    def get_mean_std_amplitude(self):
         pos = 2*torch.rand(1000, 3, device=self.device) - 1
         alpha = []
         for t in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
-            _alpha = self.get_mixing_coefficient(pos, t).mean().item()
+            _alpha = self.get_mixing_coefficient(pos, t, None).mean().item()
             alpha.append(_alpha)
         alpha = np.array(alpha)
         return alpha.mean(), alpha.std()
     
-    def get_stat_dict(self, step: int) -> Dict[str, float]:
-        mean_mixing_amplitude, std_mixing_amplitude = self.get_mean_std_amplitude(step)
+    def get_stat_dict(self) -> Dict[str, float]:
+        mean_mixing_amplitude, std_mixing_amplitude = self.get_mean_std_amplitude()
         return {
             'mean_mixing_amplitude': mean_mixing_amplitude, 
             'std_mixing_amplitude': std_mixing_amplitude,
@@ -197,7 +197,7 @@ class TemporalMixer(FieldMixer):
             support_range=(0,1) # time range
         )
     
-    def get_mixing_coefficient(self, positions: Tensor, times: Tensor, step: int) -> Tensor:
+    def get_mixing_coefficient(self, positions: Tensor, times: Tensor, step: Optional[int]) -> Tensor:
         # times could be coming in with various shapes
         # if we only have one time, call it with a one-element tensor
         # else call on 1d view
@@ -209,23 +209,23 @@ class TemporalMixer(FieldMixer):
             alpha = alpha.view_as(times)
         return torch.sigmoid(alpha)
 
-    def get_mean_amplitude(self, step: int):
+    def get_mean_amplitude(self):
         t = torch.linspace(0, 1, 21, device=self.device)
-        alpha = self.get_mixing_coefficient(None, t, step)
+        alpha = self.get_mixing_coefficient(None, t, None)
         return alpha.mean()
     
-    def get_std_amplitude(self, step: int):
+    def get_std_amplitude(self):
         t = torch.linspace(0, 1, 21, device=self.device)
-        alpha = self.get_mixing_coefficient(None, t, step)
+        alpha = self.get_mixing_coefficient(None, t, None)
         return alpha.std()
     
-    def get_mean_std_amplitude(self, step: int):
+    def get_mean_std_amplitude(self):
         t = torch.linspace(0, 1, 21, device=self.device)
-        alpha = self.get_mixing_coefficient(None, t, step)
+        alpha = self.get_mixing_coefficient(None, t, None)
         return alpha.mean(), alpha.std()
 
-    def get_stat_dict(self, step: int) -> Dict[str, float]:
-        mean_mixing_amplitude, std_mixing_amplitude = self.get_mean_std_amplitude(step)
+    def get_stat_dict(self) -> Dict[str, float]:
+        mean_mixing_amplitude, std_mixing_amplitude = self.get_mean_std_amplitude()
         return {
             'mean_mixing_amplitude': mean_mixing_amplitude, 
             'std_mixing_amplitude': std_mixing_amplitude,
@@ -281,8 +281,8 @@ class TemporalAnnealingMixer(TemporalMixer):
             alpha = alpha.view_as(times)
         return torch.sigmoid(self.slope * alpha)
     
-    def get_stat_dict(self, step: int) -> Dict[str, float]:
-        mean_mixing_amplitude, std_mixing_amplitude = self.get_mean_std_amplitude(step)
+    def get_stat_dict(self) -> Dict[str, float]:
+        mean_mixing_amplitude, std_mixing_amplitude = self.get_mean_std_amplitude()
         return {
             'mean_mixing_amplitude': mean_mixing_amplitude, 
             'std_mixing_amplitude': std_mixing_amplitude,
@@ -309,10 +309,10 @@ class SmoothStepMixer(FieldMixer):
         self.register_parameter('slope', torch.nn.parameter.Parameter(torch.tensor(self.config.init_slope)))
         self.register_parameter('center', torch.nn.parameter.Parameter(torch.tensor(0.5)))
 
-    def get_mixing_coefficient(self, positions: Tensor, times: Tensor, step: int) -> Tensor:
+    def get_mixing_coefficient(self, positions: Tensor, times: Tensor, step: Optional[int]) -> Tensor:
         return torch.sigmoid(self.slope * (times - self.center))
     
-    def get_stat_dict(self, step: int) -> Dict[str, float]:
+    def get_stat_dict(self) -> Dict[str, float]:
         return {
             'slope': self.slope.item(),
             'center': self.center.item(),
@@ -330,10 +330,13 @@ class SpatiotemporalMixingRenderer(torch.nn.Module):
         cls,
         alphas: Tensor,
         ray_samples: RaySamples,
+        densities: Tensor,
     ) -> Tensor:
         positions = ray_samples.frustums.get_positions() # [ray, nsamples, 3]
         # select positions within scene box (-1 to 1)
         mask = torch.all((positions >= -1) & (positions <= 1), dim=-1, keepdim=True) # [ray, nsamples, 1]
         delta_alpha = ray_samples.deltas * alphas * mask # [ray, nsamples, 1]
+        # weight by density such that empty space has no contribution
+        delta_alpha = delta_alpha * densities
         acc_alpha = torch.sum(delta_alpha, dim=-2) # [ray, 1]   
         return acc_alpha
