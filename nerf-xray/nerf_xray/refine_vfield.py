@@ -35,7 +35,10 @@ def main(
     assert isinstance(config, TrainerConfig)
     load_dir = config.get_checkpoint_dir()
     # discover the latest checkpoint
-    ckpt_path = max(load_dir.glob('*.ckpt'))
+    try:
+        ckpt_path = max(load_dir.glob('*.ckpt'))
+    except ValueError:
+        raise ValueError(f'No checkpoint found in {load_dir}')
     print(f'Loading from {ckpt_path}')
     old_df_config = config.pipeline.model.deformation_field
     old_df, key_map = load_def_field(ckpt_path, old_df_config)
@@ -91,6 +94,9 @@ def main(
             plt.plot(z.cpu(), u[:,2].cpu(), label=f'{t:.2f}', ls='--', color=f'C{i}')
             u = new_df(pos, time, 1.0) - pos
             plt.plot(z.cpu(), u[:,2].cpu(), label=f'{t:.2f}', color=f'C{i}')
+    plt.xlabel('z')
+    plt.ylabel('u')
+    plt.legend()
     plt.savefig(ckpt_path.parent.parent/'def_field_refining.png')
     plt.close()
 

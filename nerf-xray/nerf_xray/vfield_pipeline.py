@@ -408,7 +408,7 @@ class VfieldPipeline(VanillaPipeline):
             self, 
             reduction: Literal['mean','sum','none'] = 'mean', 
             npoints: Optional[int] = None,
-            extent: Optional[Tuple[Tuple[float,float],Tuple[float,float],Tuple[float,float]]] = field(default_factory=lambda: ((-1,1),(-1,1),(-1,1)))
+            extent: Optional[float] = 1.0
     ):
         if self.model.config.direction != 'both':
             return torch.zeros(1, device=self.device)
@@ -420,10 +420,7 @@ class VfieldPipeline(VanillaPipeline):
         if npoints is None:
             npoints = self.config.datamanager.train_num_rays_per_batch*32
         for i,t in enumerate(times):
-            pos = torch.rand((npoints, 3), device=self.device)
-            pos[:,0] = extent[0][0] + pos[:,0]*(extent[0][1]-extent[0][0])
-            pos[:,1] = extent[1][0] + pos[:,1]*(extent[1][1]-extent[1][0])
-            pos[:,2] = extent[2][0] + pos[:,2]*(extent[2][1]-extent[2][0])
+            pos = (2*torch.rand((npoints, 3), device=self.device) - 1.0) * extent
             diff = self.model.get_density_difference(pos, t.item()).pow(2).mean().view(1)
             diffs.append(diff)
         if len(diffs)>0:
