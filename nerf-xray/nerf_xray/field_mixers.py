@@ -37,27 +37,33 @@ class FieldMixer(torch.nn.Module):
         self.config = config
     
     @abstractmethod
-    def get_mixing_coefficient(self, positions: Tensor, times: Tensor) -> Tensor:
+    def get_mixing_coefficient(self, positions: Tensor, times: Tensor, step: int) -> Tensor:
         """Get the mixing coefficient
 
         Args:
             positions: positions of the points
             times: times of the points
+            step: step number
         """
 
     @abstractmethod
-    def get_mean_amplitude(self) -> float:
+    def get_mean_amplitude(self, step: int) -> float:
         """Get the mean amplitude of the field mixer"""
         pass
 
     @abstractmethod
-    def get_std_amplitude(self) -> float:
+    def get_std_amplitude(self, step: int) -> float:
         """Get the standard deviation of the field mixer"""
         pass
     
     @abstractmethod
-    def get_mean_std_amplitude(self) -> Tuple[float, float]:
+    def get_mean_std_amplitude(self, step: int) -> Tuple[float, float]:
         """Get the mean and standard deviation of the field mixer"""
+        pass
+
+    @abstractmethod
+    def get_stat_dict(self, step: int) -> Dict[str, float]:
+        """Get the statistics of the field mixer"""
         pass
     
     @property
@@ -83,8 +89,11 @@ class ConstantMixer(torch.nn.Module):
         self.config = config
         self.register_parameter('alpha', torch.nn.parameter.Parameter(torch.tensor(config.alpha)))
     
-    def get_mixing_coefficient(self, positions: Tensor, times: Tensor) -> Tensor:
+    def get_mixing_coefficient(self, positions: Tensor, times: Tensor, step: int) -> Tensor:
         return self.alpha
+    
+    def get_stat_dict(self, step: int) -> Dict[str, float]:
+        return {'mean_mixing_amplitude': self.alpha.item(), 'std_mixing_amplitude': 0.0}
    
 @dataclass
 class SpatioTemporalMixerConfig(FieldMixerConfig):
@@ -123,13 +132,13 @@ class SpatioTemporalMixer(FieldMixer):
         )
         self.deformation_field = deformation_config.setup()
     
-    def get_mixing_coefficient(self, positions: Tensor, times: Union[Tensor, float]) -> Tensor:
+    def get_mixing_coefficient(self, positions: Tensor, times: Union[Tensor, float], step: int) -> Tensor:
         """Get the mixing coefficient using the temporal B-spline field.
         
         Args:
             positions: positions of shape [ray, nsamples, 3]
             times: times of shape [ray, nsamples, 1] or float
-            
+            step: step number
         Returns:
             Tensor: mixing coefficients of shape [ray, nsamples, 1]
         """
@@ -143,13 +152,13 @@ class SpatioTemporalMixer(FieldMixer):
         alpha = alpha.view(*shape, 1)
         return torch.sigmoid(alpha)
     
-    def get_mean_amplitude(self):
-        return self.get_mean_std_amplitude()[0]
+    def get_mean_amplitude(self, step: int):
+        return self.get_mean_std_amplitude(step)[0]
     
-    def get_std_amplitude(self):
-        return self.get_mean_std_amplitude()[1]
+    def get_std_amplitude(self, step: int):
+        return self.get_mean_std_amplitude(step)[1]
     
-    def get_mean_std_amplitude(self):
+    def get_mean_std_amplitude(self, step: int):
         pos = 2*torch.rand(1000, 3, device=self.device) - 1
         alpha = []
         for t in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
@@ -157,6 +166,13 @@ class SpatioTemporalMixer(FieldMixer):
             alpha.append(_alpha)
         alpha = np.array(alpha)
         return alpha.mean(), alpha.std()
+    
+    def get_stat_dict(self, step: int) -> Dict[str, float]:
+        mean_mixing_amplitude, std_mixing_amplitude = self.get_mean_std_amplitude(step)
+        return {
+            'mean_mixing_amplitude': mean_mixing_amplitude, 
+            'std_mixing_amplitude': std_mixing_amplitude,
+        }
     
 @dataclass
 class TemporalMixerConfig(FieldMixerConfig):
@@ -181,7 +197,7 @@ class TemporalMixer(FieldMixer):
             support_range=(0,1) # time range
         )
     
-    def get_mixing_coefficient(self, positions: Tensor, times: Tensor) -> Tensor:
+    def get_mixing_coefficient(self, positions: Tensor, times: Tensor, step: int) -> Tensor:
         # times could be coming in with various shapes
         # if we only have one time, call it with a one-element tensor
         # else call on 1d view
@@ -193,20 +209,114 @@ class TemporalMixer(FieldMixer):
             alpha = alpha.view_as(times)
         return torch.sigmoid(alpha)
 
-    def get_mean_amplitude(self):
+    def get_mean_amplitude(self, step: int):
         t = torch.linspace(0, 1, 21, device=self.device)
-        alpha = self.get_mixing_coefficient(None, t)
+        alpha = self.get_mixing_coefficient(None, t, step)
         return alpha.mean()
     
-    def get_std_amplitude(self):
+    def get_std_amplitude(self, step: int):
         t = torch.linspace(0, 1, 21, device=self.device)
-        alpha = self.get_mixing_coefficient(None, t)
+        alpha = self.get_mixing_coefficient(None, t, step)
         return alpha.std()
     
-    def get_mean_std_amplitude(self):
+    def get_mean_std_amplitude(self, step: int):
         t = torch.linspace(0, 1, 21, device=self.device)
-        alpha = self.get_mixing_coefficient(None, t)
+        alpha = self.get_mixing_coefficient(None, t, step)
         return alpha.mean(), alpha.std()
+
+    def get_stat_dict(self, step: int) -> Dict[str, float]:
+        mean_mixing_amplitude, std_mixing_amplitude = self.get_mean_std_amplitude(step)
+        return {
+            'mean_mixing_amplitude': mean_mixing_amplitude, 
+            'std_mixing_amplitude': std_mixing_amplitude,
+        }
+
+@dataclass
+class TemporalAnnealingMixerConfig(TemporalMixerConfig):
+    """Configuration for temporal annealing field mixer instantiation"""
+
+    _target: Type = field(default_factory=lambda: TemporalAnnealingMixer)
+    """target class to instantiate"""
+    max_steps: int = 1000
+    """Maximum steps"""
+    init_slope: float = 1.0
+    """Initial slope of the sigmoid"""
+    final_slope: float = 1.0
+    """Maximum slope of the sigmoid"""
+
+class TemporalAnnealingMixer(TemporalMixer):
+    """Temporal annealing mixer"""
+
+    config: TemporalAnnealingMixerConfig
+
+    def __init__(self, config: TemporalAnnealingMixerConfig) -> None:
+        super().__init__(config)
+        self.config = config
+        self.register_buffer('slope', torch.tensor([config.init_slope]))
+        self.init_step = None
+        
+    def update_slope(self, step: int):
+        self.slope[0] = self.config.init_slope + (self.config.final_slope - self.config.init_slope) * (step - self.init_step) / self.config.max_steps
+
+    def get_mixing_coefficient(self, positions: Tensor, times: Tensor, step: int) -> Tensor:
+        """Get the mixing coefficient using the temporal B-spline field.
+        
+        Args:
+            positions: positions of shape [ray, nsamples, 3]
+            times: times of shape [ray, nsamples, 1] or float
+            step: step number
+        Returns:
+            Tensor: mixing coefficients of shape [ray, nsamples, 1]
+        """
+        if self.training:
+            if self.init_step is None:
+                self.init_step = step
+            self.update_slope(step)
+
+        t = times.flatten()
+        if t.unique().numel() == 1:
+            alpha = self.mixing_field(t[0].view(1))[0]
+        else:
+            alpha = self.mixing_field(t)
+            alpha = alpha.view_as(times)
+        return torch.sigmoid(self.slope * alpha)
+    
+    def get_stat_dict(self, step: int) -> Dict[str, float]:
+        mean_mixing_amplitude, std_mixing_amplitude = self.get_mean_std_amplitude(step)
+        return {
+            'mean_mixing_amplitude': mean_mixing_amplitude, 
+            'std_mixing_amplitude': std_mixing_amplitude,
+            'slope': self.slope.item(),
+        }
+
+@dataclass
+class SmoothStepMixerConfig(FieldMixerConfig):
+    """Configuration for smooth step field mixer instantiation"""
+
+    _target: Type = field(default_factory=lambda: SmoothStepMixer)
+    """target class to instantiate"""
+    init_slope: float = 4.926
+    """Initial slope of the sigmoid"""
+
+class SmoothStepMixer(FieldMixer):
+    """Smooth step mixer"""
+
+    config: SmoothStepMixerConfig
+
+    def __init__(self, config: SmoothStepMixerConfig) -> None:
+        super().__init__(config)
+        self.config = config
+        self.register_parameter('slope', torch.nn.parameter.Parameter(torch.tensor(self.config.init_slope)))
+        self.register_parameter('center', torch.nn.parameter.Parameter(torch.tensor(0.5)))
+
+    def get_mixing_coefficient(self, positions: Tensor, times: Tensor, step: int) -> Tensor:
+        return torch.sigmoid(self.slope * (times - self.center))
+    
+    def get_stat_dict(self, step: int) -> Dict[str, float]:
+        return {
+            'slope': self.slope.item(),
+            'center': self.center.item(),
+        }
 
 
 class SpatiotemporalMixingRenderer(torch.nn.Module):

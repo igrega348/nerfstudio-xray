@@ -16,5 +16,6 @@ xray_twofield = 'nerf_xray.twofield_config:xray_twofield'
 xray_vfield = 'nerf_xray.vfield_config:xray_vfield'
 mixing_vfield = 'nerf_xray.mixing_config:mixing_vfield'
 spatiotemporal_mix = 'nerf_xray.spatiotemporal_mix_config:spatiotemporal_mix'
+smoothstep_mixing = 'nerf_xray.smstep_mixing_config:smoothstep_mixing'
 [project.entry-points.'nerfstudio.dataparser_configs']
 xray-dataparser = 'nerf_xray.parser_config:XrayDataparser'

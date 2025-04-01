@@ -409,7 +409,7 @@ class VfieldModel(Model):
         if which=='backward':
             return density_1
         assert density_0 is not None and density_1 is not None
-        alphas = self.field_weighing.get_mixing_coefficient(positions, time).squeeze()
+        alphas = self.field_weighing.get_mixing_coefficient(positions, time, self.step).squeeze()
         density = self.mix_two_fields(density_0, density_1, alphas) # type: ignore
         return density
 
@@ -448,7 +448,7 @@ class VfieldModel(Model):
             else:
                 field_f_outputs = self.field_f.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,0.0))
                 field_b_outputs = self.field_b.forward(ray_samples, compute_normals=self.config.predict_normals, deformation_field=lambda x,t: self.deformation_field(x,t,1.0))
-                alphas = self.field_weighing.get_mixing_coefficient(ray_samples.frustums.get_positions(), ray_samples.times)
+                alphas = self.field_weighing.get_mixing_coefficient(ray_samples.frustums.get_positions(), ray_samples.times, self.step)
                 field_outputs = self.mix_two_fields(field_f_outputs, field_b_outputs, alphas)
         
         if self.config.use_gradient_scaling:

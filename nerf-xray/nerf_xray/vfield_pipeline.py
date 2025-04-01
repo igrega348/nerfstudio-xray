@@ -6,7 +6,7 @@ import typing
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import time
-from typing import Any, Dict, Literal, Optional, Sequence, Tuple, Type, Union
+from typing import Any, Dict, Literal, Optional, Sequence, Tuple, Type, Union, List
 
 import cv2 as cv
 import matplotlib.pyplot as plt
@@ -154,7 +154,7 @@ class VfieldPipeline(VanillaPipeline):
         metrics_dict['normed_correlation_1'] = self.calculate_density_loss(sampling='random', time=1.0)['normed_correlation']
         metrics_dict.update({'mismatch_penalty':self.get_fields_mismatch_penalty()})
         if self.model.config.disable_mixing==False:
-            metrics_dict['mean_mixing_amplitude'], metrics_dict['std_mixing_amplitude'] = self.model.field_weighing.get_mean_std_amplitude()
+            metrics_dict.update(self.model.field_weighing.get_stat_dict(step))
 
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         self.train()
@@ -247,21 +247,50 @@ class VfieldPipeline(VanillaPipeline):
         sampling: Literal['random','grid'] = 'random', 
         time: Optional[float] = None, 
         target: Optional[Object] = None, 
-        npoints: Optional[int] = None
+        npoints: Optional[int] = None,
+        extent: Optional[Tuple[Tuple[float,float],Tuple[float,float],Tuple[float,float]]] = field(default_factory=lambda: ((-1,1),(-1,1),(-1,1))),
+        batch_size: Optional[int] = None
     ) -> Dict[str, Any]:
         if sampling=='grid':
             if npoints is None: 
                 npoints = 200
-            pos = torch.linspace(-1, 1, npoints, device=self.device) # scene box goes between -1 and 1 
-            pos = torch.stack(torch.meshgrid(pos, pos, pos, indexing='ij'), dim=-1).reshape(-1, 3)
+            lsp = torch.linspace(0, 1, npoints, device=self.device) # scene box goes between -1 and 1 
+            pos = torch.stack(
+                torch.meshgrid(
+                    extent[0][0] + lsp*(extent[0][1]-extent[0][0]), 
+                    extent[1][0] + lsp*(extent[1][1]-extent[1][0]), 
+                    extent[2][0] + lsp*(extent[2][1]-extent[2][0]), 
+                    indexing='ij'
+                ), 
+                dim=-1
+            ).reshape(-1, 3)
         elif sampling=='random':
             if npoints is None:
                 npoints = self.config.datamanager.train_num_rays_per_batch*32
-            pos = 2*torch.rand((npoints, 3), device=self.device) - 1.0
+            pos = torch.rand((npoints, 3), device=self.device)
+            pos[:,0] = extent[0][0] + pos[:,0]*(extent[0][1]-extent[0][0])
+            pos[:,1] = extent[1][0] + pos[:,1]*(extent[1][1]-extent[1][0])
+            pos[:,2] = extent[2][0] + pos[:,2]*(extent[2][1]-extent[2][0])
 
-        pred_density_f = self.model.field_f.get_density_from_pos(pos, deformation_field=lambda x,t: self.model.deformation_field(x,t,0.0), time=time).squeeze()
-        pred_density_b = self.model.field_b.get_density_from_pos(pos, deformation_field=lambda x,t: self.model.deformation_field(x,t,1.0), time=time).squeeze()
-        mixed_density = self.model.get_density_from_pos(pos, time=time, which='mixed').squeeze()
+        # need to implement batching as it won't necessarily fit into memory
+        if batch_size is None:
+            batch_size = 1<<50
+        pred_density_f = []
+        pred_density_b = []
+        mixed_density = []
+        num_batches = 0
+        for i in range(0, pos.shape[0], batch_size):
+            pos_batch = pos[i:i+batch_size]
+            _pred_density_f = self.model.field_f.get_density_from_pos(pos_batch, deformation_field=lambda x,t: self.model.deformation_field(x,t,0.0), time=time).squeeze()
+            _pred_density_b = self.model.field_b.get_density_from_pos(pos_batch, deformation_field=lambda x,t: self.model.deformation_field(x,t,1.0), time=time).squeeze()
+            _mixed_density = self.model.get_density_from_pos(pos_batch, time=time, which='mixed').squeeze()
+            pred_density_f.append(_pred_density_f)
+            pred_density_b.append(_pred_density_b)
+            mixed_density.append(_mixed_density)
+            num_batches += 1
+        pred_density_f = torch.cat(pred_density_f, dim=0)
+        pred_density_b = torch.cat(pred_density_b, dim=0)
+        mixed_density = torch.cat(mixed_density, dim=0)
 
         if target is None:
             assert time in [0.0, 1.0], "Time must be 0.0 or 1.0"
@@ -274,10 +303,12 @@ class VfieldPipeline(VanillaPipeline):
         normed_correlation_f = self.calculate_normed_correlation(x=density, y=pred_density_f)
         normed_correlation_b = self.calculate_normed_correlation(x=density, y=pred_density_b)
         normed_correlation_mixed = self.calculate_normed_correlation(x=density, y=mixed_density)
+        mismatch_penalty = (pred_density_f - pred_density_b).pow(2).mean()
         return {
             'normed_correlation_f': normed_correlation_f,
             'normed_correlation_b': normed_correlation_b,
             'normed_correlation_mixed': normed_correlation_mixed,
+            'self_mismatch_penalty': mismatch_penalty,
             }
     
     def eval_along_plane(
@@ -373,7 +404,12 @@ class VfieldPipeline(VanillaPipeline):
     def get_flat_field_penalty(self):
         return -self.config.flat_field_loss_multiplier*self.model.flat_field.phi_x.mean()
 
-    def get_fields_mismatch_penalty(self, reduction: Literal['mean','sum','none'] = 'mean', npoints: Optional[int] = None):
+    def get_fields_mismatch_penalty(
+            self, 
+            reduction: Literal['mean','sum','none'] = 'mean', 
+            npoints: Optional[int] = None,
+            extent: Optional[Tuple[Tuple[float,float],Tuple[float,float],Tuple[float,float]]] = field(default_factory=lambda: ((-1,1),(-1,1),(-1,1)))
+    ):
         if self.model.config.direction != 'both':
             return torch.zeros(1, device=self.device)
         # sample time
@@ -384,7 +420,10 @@ class VfieldPipeline(VanillaPipeline):
         if npoints is None:
             npoints = self.config.datamanager.train_num_rays_per_batch*32
         for i,t in enumerate(times):
-            pos = (2*torch.rand((npoints, 3), device=self.device) - 1.0) * 0.7 # +0.7 to -0.7
+            pos = torch.rand((npoints, 3), device=self.device)
+            pos[:,0] = extent[0][0] + pos[:,0]*(extent[0][1]-extent[0][0])
+            pos[:,1] = extent[1][0] + pos[:,1]*(extent[1][1]-extent[1][0])
+            pos[:,2] = extent[2][0] + pos[:,2]*(extent[2][1]-extent[2][0])
             diff = self.model.get_density_difference(pos, t.item()).pow(2).mean().view(1)
             diffs.append(diff)
         if len(diffs)>0:

@@ -752,7 +752,7 @@ class BsplineTemporalIntegratedVelocityField3d(BsplineTemporalDeformationField3d
             if t.item()!=final_time: # add more randomness to this to make it "grid-free"
                 num_steps = ceil(torch.abs(t-final_time).item()/self.config.timedelta)
                 _times = torch.linspace(t, final_time, num_steps, device=x.device)
-                if _times.shape[0]>2:
+                if _times.shape[0]>2 and self.training:
                     r = 2*(torch.rand(_times.shape[0]-2, device=x.device)-0.5) # uniform random -1 to 1
                     _times[1:-1] += 0.1*self.config.timedelta*r # perturb by up to 10% dt
                 for it, _t in enumerate(_times[:-1]):
