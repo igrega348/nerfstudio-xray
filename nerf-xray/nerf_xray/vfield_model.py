@@ -465,7 +465,7 @@ class VfieldModel(Model):
         attenuation = self.renderer_attenuation(densities=field_outputs[FieldHeadNames.DENSITY], ray_samples=ray_samples)
         flat_field = self.flat_field(ray_bundle.times.view(-1)).view(-1,1)
         rgb = self.renderer_attenuation.merge_flat_field(attenuation, flat_field) * attenuation.new_ones(1,3)
-        if alphas is not None and not self.training:
+        if alphas is not None and not self.training and not self.config.disable_mixing:
             acc_alpha = self.spatiotemporal_mixing_renderer(alphas, ray_samples, field_outputs[FieldHeadNames.DENSITY])
 
         outputs = {

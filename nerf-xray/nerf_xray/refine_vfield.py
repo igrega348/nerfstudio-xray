@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Literal
 from pathlib import Path
 import torch
 import yaml
@@ -29,7 +29,8 @@ def main(
     load_config: Path,
     new_resolution: int,
     new_nn_width: int,
-    out_path: Optional[Path] = None
+    out_path: Optional[Path] = None,
+    progress_indicator: Literal['tqdm', 'text'] = 'text'
 ):
     config = yaml.load(load_config.read_text(), Loader=yaml.Loader)
     assert isinstance(config, TrainerConfig)
@@ -55,7 +56,12 @@ def main(
     optimizer = torch.optim.AdamW(new_df.parameters(), lr=1e-2)
     scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, 1.0, 0.01, 1000)
     losses = []
-    pbar = trange(1000)
+
+    if progress_indicator == 'tqdm':
+        pbar = trange(1000)
+    else:
+        pbar = range(1000)
+        print('Optimizing field: ', end='')
 
     for i in pbar:
         optimizer.zero_grad()
@@ -83,7 +89,12 @@ def main(
         optimizer.step()
         scheduler.step()
         losses.append(loss.item())
-        pbar.set_postfix({'loss':loss.item(), 'lr':scheduler.get_last_lr()[0]})
+        if progress_indicator == 'tqdm':
+            pbar.set_postfix({'loss':loss.item(), 'lr':scheduler.get_last_lr()[0]})
+        else:
+            if i % 10==0:
+                print('.', end='')
+    print()
 
     with torch.no_grad():
         for i,t in enumerate(np.linspace(0,1,6)):

@@ -154,7 +154,7 @@ class VfieldPipeline(VanillaPipeline):
         metrics_dict['normed_correlation_1'] = self.calculate_density_loss(sampling='random', time=1.0)['normed_correlation']
         metrics_dict.update({'mismatch_penalty':self.get_fields_mismatch_penalty()})
         if self.model.config.disable_mixing==False:
-            metrics_dict.update(self.model.field_weighing.get_stat_dict(step))
+            metrics_dict.update(self.model.field_weighing.get_stat_dict())
 
         loss_dict = self.model.get_loss_dict(model_outputs, batch, metrics_dict)
         self.train()

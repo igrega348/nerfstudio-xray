@@ -46,7 +46,7 @@ xray_vfield = MethodSpecification(
                 ),
                 train_num_rays_per_batch=512,
                 eval_num_rays_per_batch=512,
-                max_images_per_timestamp=3,
+                max_images_per_timestamp=2,
                 time_proposal_steps=500,
             ),
             model=VfieldModelConfig(
