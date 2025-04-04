@@ -331,7 +331,8 @@ class TemplatePipeline(VanillaPipeline):
         engine='cv', 
         resolution=500,
         rhomax=1.0,
-        time=0.0
+        time=0.0,
+        which=None
     ):
         a = torch.linspace(-1, 1, resolution, device=self.device) # scene box will map to 0-1
         b = torch.linspace(-1, 1, resolution, device=self.device) # scene box will map to 0-1
