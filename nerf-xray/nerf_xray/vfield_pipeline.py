@@ -304,11 +304,13 @@ class VfieldPipeline(VanillaPipeline):
         normed_correlation_b = self.calculate_normed_correlation(x=density, y=pred_density_b)
         normed_correlation_mixed = self.calculate_normed_correlation(x=density, y=mixed_density)
         mismatch_penalty = (pred_density_f - pred_density_b).pow(2).mean()
+        normalized_mismatch_penalty = mismatch_penalty / mixed_density.pow(2).mean()
         return {
             'normed_correlation_f': normed_correlation_f,
             'normed_correlation_b': normed_correlation_b,
             'normed_correlation_mixed': normed_correlation_mixed,
             'self_mismatch_penalty': mismatch_penalty,
+            'normalized_mismatch_penalty': normalized_mismatch_penalty,
             }
     
     def eval_along_plane(

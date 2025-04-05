@@ -10,11 +10,11 @@ def main(
 ):
     assert fwd_ckpt is not None or bwd_ckpt is not None
     if fwd_ckpt is not None:
-        assert fwd_ckpt.exists()
+        assert fwd_ckpt.exists(), f'Forward checkpoint {fwd_ckpt} does not exist'
         if out_fn is None:
             out_fn = fwd_ckpt.with_name('combined.ckpt')
     if bwd_ckpt is not None:
-        assert bwd_ckpt.exists()
+        assert bwd_ckpt.exists(), f'Backward checkpoint {bwd_ckpt} does not exist'
         if out_fn is None:
             out_fn = bwd_ckpt.with_name('combined.ckpt')
 
