@@ -63,10 +63,11 @@ nerf_xray = MethodSpecification(
             "fields": {
                 "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),
                 "scheduler": ColdRestartLinearDecaySchedulerConfig(warmup_steps=50, lr_final=3e-5, max_steps=5000),
+                # "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=5000),
             },
             "flat_field": {
                 "optimizer": RAdamOptimizerConfig(lr=1e-3, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-6, max_steps=50000),
+                "scheduler": ColdRestartLinearDecaySchedulerConfig(warmup_steps=200, lr_final=1e-6, max_steps=5000),
             },
         },
         viewer=ViewerConfig(

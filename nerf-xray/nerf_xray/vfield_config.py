@@ -73,7 +73,7 @@ xray_vfield = MethodSpecification(
             # TODO: consider changing optimizers depending on your custom method
             "proposal_networks": {
                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.0001, max_steps=200000),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.0001, max_steps=10000),
             },
             "fields": {
                 "optimizer": AdamWOptimizerConfig(lr=1e-4, eps=1e-15, weight_decay=1e-8),
@@ -89,7 +89,7 @@ xray_vfield = MethodSpecification(
             # },
             "flat_field": {
                 "optimizer": RAdamOptimizerConfig(lr=1e-4, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-6, max_steps=50000),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-6, max_steps=5000),
             },
         },
         viewer=ViewerConfig(
