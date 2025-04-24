@@ -1,7 +1,5 @@
 """
-Nerfstudio Template Config
-
-Define your custom method here that registers with Nerfstudio CLI.
+Configuration for the velocity field method.
 """
 
 from __future__ import annotations
@@ -20,7 +18,8 @@ from nerf_xray.xray_temporal_datamanager import XrayTemporalDataManagerConfig
 from nerf_xray.template_dataparser import TemplateDataParserConfig
 from nerf_xray.vfield_model import VfieldModelConfig
 from nerf_xray.vfield_pipeline import VfieldPipelineConfig
-from nerf_xray.deformation_fields import BsplineTemporalIntegratedVelocityField3dConfig
+from nerf_xray.field_mixers import ConstantMixerConfig
+from nerf_xray.deformation_fields import BsplineTemporalIntegratedVelocityField3dConfig, DeformationFieldConfig
 from nerf_xray.utils import ColdRestartLinearDecaySchedulerConfig
 
 xray_vfield = MethodSpecification(
@@ -45,7 +44,7 @@ xray_vfield = MethodSpecification(
                 ),
                 train_num_rays_per_batch=512,
                 eval_num_rays_per_batch=512,
-                max_images_per_timestamp=3,
+                max_images_per_timestamp=2,
                 time_proposal_steps=500,
             ),
             model=VfieldModelConfig(
@@ -63,6 +62,7 @@ xray_vfield = MethodSpecification(
                     num_control_points=(4,4,4),
                     timedelta=0.05,
                 ),
+                field_weighing=ConstantMixerConfig(alpha=0.5),
                 train_field_weighing=False,
             ),
             volumetric_supervision=False,
@@ -71,7 +71,7 @@ xray_vfield = MethodSpecification(
             # TODO: consider changing optimizers depending on your custom method
             "proposal_networks": {
                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.0001, max_steps=200000),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.0001, max_steps=10000),
             },
             "fields": {
                 "optimizer": AdamWOptimizerConfig(lr=1e-4, eps=1e-15, weight_decay=1e-8),
@@ -87,13 +87,7 @@ xray_vfield = MethodSpecification(
             # },
             "flat_field": {
                 "optimizer": RAdamOptimizerConfig(lr=1e-4, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-6, max_steps=50000),
-            },
-            "camera_opt": {
-                # "optimizer": AdamOptimizerConfig(lr=1e-5, eps=1e-15),
-                # "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=5000),
-                "optimizer": AdamOptimizerConfig(lr=1e-11, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-12, max_steps=5000),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-6, max_steps=5000),
             },
         },
         viewer=ViewerConfig(

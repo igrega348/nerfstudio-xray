@@ -1,15 +1,18 @@
-from typing import Optional
+from typing import Optional, Literal
 from pathlib import Path
 import torch
+import yaml
 import numpy as np
+from nerfstudio.engine.trainer import TrainerConfig
+import copy
 import matplotlib.pyplot as plt
 from nerf_xray.deformation_fields import BsplineTemporalIntegratedVelocityField3dConfig, BsplineTemporalIntegratedVelocityField3d
 from tqdm import tqdm, trange
 import tyro
 
-def load_def_field(p: Path, old_ng: int, weight_nn_width: int):
+def load_def_field(p: Path, old_df_config: BsplineTemporalIntegratedVelocityField3dConfig):
     print(f'Loading from {p}')
-    data = torch.load(Path(p))
+    data = torch.load(Path(p), weights_only=False)
     _data = {}
     key_map = {}
     for key in data['pipeline'].keys():
@@ -18,30 +21,34 @@ def load_def_field(p: Path, old_ng: int, weight_nn_width: int):
             key_map[key.split('deformation_field.')[1]] = key
     data = _data
 
-    deformation_field = make_def_field(old_ng, weight_nn_width)
+    deformation_field = old_df_config.setup()
     deformation_field.load_state_dict(data)
     return deformation_field, key_map
 
-def make_def_field(ng: int, weight_nn_width: int):
-    df2 = BsplineTemporalIntegratedVelocityField3dConfig(
-        support_range=[(-1,1),(-1,1),(-1,1)],
-        num_control_points=(ng,ng,ng),
-        weight_nn_width=weight_nn_width
-    ).setup()
-    return df2
-
 def main(
-    ckpt_path: Path,
-    old_resolution: int,
+    load_config: Path,
     new_resolution: int,
-    old_nn_width: int,
     new_nn_width: int,
-    out_path: Optional[Path] = None
+    out_path: Optional[Path] = None,
+    progress_indicator: Literal['tqdm', 'text'] = 'text'
 ):
-    old_df, key_map = load_def_field(ckpt_path, old_resolution, old_nn_width)
-    print(f'Old timedelta: {old_df.config.timedelta}')
-    new_df = make_def_field(new_resolution, new_nn_width)
-    print(f'New timedelta: {new_df.config.timedelta}')
+    config = yaml.load(load_config.read_text(), Loader=yaml.Loader)
+    assert isinstance(config, TrainerConfig)
+    load_dir = config.get_checkpoint_dir()
+    # discover the latest checkpoint
+    try:
+        ckpt_path = max(load_dir.glob('*.ckpt'))
+    except ValueError:
+        raise ValueError(f'No checkpoint found in {load_dir}')
+    print(f'Loading from {ckpt_path}')
+    old_df_config = config.pipeline.model.deformation_field
+    old_df, key_map = load_def_field(ckpt_path, old_df_config)
+    print(f'Old field: {old_df_config}')
+    new_df_config = copy.deepcopy(old_df_config)
+    new_df_config.num_control_points = (new_resolution, new_resolution, new_resolution)
+    new_df_config.weight_nn_width = new_nn_width
+    new_df = new_df_config.setup()
+    print(f'New field: {new_df_config}')
     # send to cuda
     old_df = old_df.to('cuda')
     new_df = new_df.to('cuda')
@@ -49,7 +56,12 @@ def main(
     optimizer = torch.optim.AdamW(new_df.parameters(), lr=1e-2)
     scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, 1.0, 0.01, 1000)
     losses = []
-    pbar = trange(1000)
+
+    if progress_indicator == 'tqdm':
+        pbar = trange(1000)
+    else:
+        pbar = range(1000)
+        print('Optimizing field: ', end='')
 
     for i in pbar:
         optimizer.zero_grad()
@@ -77,7 +89,12 @@ def main(
         optimizer.step()
         scheduler.step()
         losses.append(loss.item())
-        pbar.set_postfix({'loss':loss.item(), 'lr':scheduler.get_last_lr()[0]})
+        if progress_indicator == 'tqdm':
+            pbar.set_postfix({'loss':loss.item(), 'lr':scheduler.get_last_lr()[0]})
+        else:
+            if i % 10==0:
+                print('.', end='')
+    print()
 
     with torch.no_grad():
         for i,t in enumerate(np.linspace(0,1,6)):
@@ -88,10 +105,13 @@ def main(
             plt.plot(z.cpu(), u[:,2].cpu(), label=f'{t:.2f}', ls='--', color=f'C{i}')
             u = new_df(pos, time, 1.0) - pos
             plt.plot(z.cpu(), u[:,2].cpu(), label=f'{t:.2f}', color=f'C{i}')
-    plt.savefig(ckpt_path.with_name('def_field_refining.png'))
+    plt.xlabel('z')
+    plt.ylabel('u')
+    plt.legend()
+    plt.savefig(ckpt_path.parent.parent/'def_field_refining.png')
     plt.close()
 
-    data = torch.load(ckpt_path)
+    data = torch.load(ckpt_path, weights_only=False)
     new_dict = new_df.state_dict()
     for key in key_map:
         data['pipeline'][key_map[key]] = new_dict[key].to('cuda')

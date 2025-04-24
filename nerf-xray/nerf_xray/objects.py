@@ -1,7 +1,7 @@
 from abc import abstractmethod
 from pathlib import Path
 from typing import Iterable, List, Union
-
+import json
 import numpy as np
 import torch
 import yaml
@@ -27,6 +27,8 @@ class Object:
         path = Path(path)
         if path.suffix == ".yaml":
             return Object.from_yaml(path)
+        if path.suffix == ".json":
+            return Object.from_json(path)
         if path.suffix in [".npy",".npz"]:
             return VoxelGrid.from_file(path)
         raise ValueError(f"Unknown file type: {path.suffix}")
@@ -35,6 +37,12 @@ class Object:
     def from_yaml(path: Path) -> "Object":
         with open(path, "r") as f:
             d = yaml.safe_load(f)
+        return Object.from_dict(d)
+    
+    @staticmethod
+    def from_json(path: Path) -> "Object":
+        with open(path, "r") as f:
+            d = json.load(f)
         return Object.from_dict(d)
     
     @staticmethod

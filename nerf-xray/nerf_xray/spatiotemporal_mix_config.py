@@ -18,14 +18,15 @@ from nerfstudio.plugins.types import MethodSpecification
 
 from nerf_xray.xray_temporal_datamanager import XrayTemporalDataManagerConfig
 from nerf_xray.template_dataparser import TemplateDataParserConfig
-from nerf_xray.twofield_model import TwofieldModelConfig
-from nerf_xray.twofield_pipeline import TwofieldPipelineConfig
-from nerf_xray.deformation_fields import (BsplineTemporalDeformationField3dConfig,
-                                          BsplineDeformationField3dConfig)
+from nerf_xray.vfield_model import VfieldModelConfig
+from nerf_xray.field_mixers import SpatioTemporalMixerConfig, TemporalMixerConfig
+from nerf_xray.vfield_pipeline import VfieldPipelineConfig
+from nerf_xray.deformation_fields import BsplineTemporalIntegratedVelocityField3dConfig, BsplineTemporalDeformationField3dConfig
+from nerf_xray.utils import ColdRestartLinearDecaySchedulerConfig
 
-xray_twofield = MethodSpecification(
+spatiotemporal_mix = MethodSpecification(
     config=TrainerConfig(
-        method_name="xray_twofield", 
+        method_name="spatiotemporal_mix", 
         steps_per_eval_batch=10,
         steps_per_eval_all_images=1000000,
         steps_per_eval_image=100,
@@ -34,7 +35,7 @@ xray_twofield = MethodSpecification(
         mixed_precision=True,
         load_scheduler=False,
         load_optimizer=False,
-        pipeline=TwofieldPipelineConfig(
+        pipeline=VfieldPipelineConfig(
             datamanager=XrayTemporalDataManagerConfig(
                 dataparser=TemplateDataParserConfig(
                     auto_scale_poses=False,
@@ -43,55 +44,51 @@ xray_twofield = MethodSpecification(
                     eval_mode='filename+modulo',
                     includes_time=True,
                 ),
-                train_num_rays_per_batch=1024,
+                train_num_rays_per_batch=2048,
                 eval_num_rays_per_batch=2048,
                 max_images_per_timestamp=3,
-                time_proposal_steps=500,
+                time_proposal_steps=0,
             ),
-            model=TwofieldModelConfig(
+            model=VfieldModelConfig(
                 use_appearance_embedding=False,
                 background_color='white',
                 flat_field_value=0.02,
-                flat_field_trainable=False,
-                eval_num_rays_per_chunk=1024,
-                num_nerf_samples_per_ray=512,
+                flat_field_trainable=True,
+                eval_num_rays_per_chunk=2048,
+                num_nerf_samples_per_ray=1024,
                 disable_scene_contraction=True,
+                deformation_field=BsplineTemporalIntegratedVelocityField3dConfig(
+                    support_range=[(-1,1),(-1,1),(-1,1)],
+                    num_control_points=(4,4,4),
+                    timedelta=0.05,
+                ),
+                field_weighing=SpatioTemporalMixerConfig(
+                    num_control_points=(6,6,6),
+                    weight_nn_width=16,
+                    displacement_method='matrix'
+                ),
+                train_field_weighing=True,
                 train_density_field=False,
-                train_deformation_field=True,
-                deformation_field_f=BsplineTemporalDeformationField3dConfig(
-                    support_range=[(-1,1),(-1,1),(-1,1)],
-                    num_control_points=(4,4,4),
-                ),
-                deformation_field_b=BsplineTemporalDeformationField3dConfig(
-                    support_range=[(-1,1),(-1,1),(-1,1)],
-                    num_control_points=(4,4,4),
-                ),
+                train_deformation_field=False,
             ),
             volumetric_supervision=False,
         ),
         optimizers={
-            # TODO: consider changing optimizers depending on your custom method
             "proposal_networks": {
                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.0001, max_steps=200000),
             },
             "fields": {
-                "optimizer": AdamWOptimizerConfig(lr=1e-3, eps=1e-15, weight_decay=1e-8),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=3e-4, max_steps=10000),
+                "optimizer": AdamWOptimizerConfig(lr=1e-4, eps=1e-15, weight_decay=1e-8),
+                "scheduler": ColdRestartLinearDecaySchedulerConfig(warmup_steps=50, lr_pre_warmup=1e-8, lr_final=1e-5, steady_steps=2000, max_steps=3000),
             },
-            # "fields": {
-            #     "optimizer": RAdamOptimizerConfig(lr=1e-2, eps=1e-15),
-            #     "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=50000),
-            # },
+            "field_weighing": {
+                "optimizer": AdamWOptimizerConfig(lr=1e-2, eps=1e-15, weight_decay=1e-8),
+                "scheduler": ColdRestartLinearDecaySchedulerConfig(warmup_steps=50, lr_pre_warmup=1e-8, lr_final=1e-4, steady_steps=2000, max_steps=3000),
+            },
             "flat_field": {
                 "optimizer": RAdamOptimizerConfig(lr=1e-4, eps=1e-15),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-6, max_steps=50000),
-            },
-            "camera_opt": {
-                # "optimizer": AdamOptimizerConfig(lr=1e-5, eps=1e-15),
-                # "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=5000),
-                "optimizer": AdamOptimizerConfig(lr=1e-11, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-12, max_steps=5000),
             },
         },
         viewer=ViewerConfig(
@@ -101,5 +98,5 @@ xray_twofield = MethodSpecification(
         ),
         vis="tensorboard",
     ),
-    description="Nerfstudio method template.",
+    description="Spatio-temporal mixing of fields.",
 )

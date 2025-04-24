@@ -83,7 +83,7 @@ class TemplateDataParserConfig(DataParserConfig):
     includes_time: bool = False
     """Whether the dataset includes time information in the camera poses."""
 
-def split_files(image_filenames: List, imin: int, imax: int, istep: int, indices: List[int]) -> Tuple[np.ndarray, np.ndarray]:
+def split_files(image_filenames: List, imin: int, imax: int, istep: int, indices: Optional[List[int]] = None) -> Tuple[np.ndarray, np.ndarray]:
     """
     Get the train/eval split based on the filename of the images.
 

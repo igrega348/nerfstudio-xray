@@ -1,3 +1,9 @@
+"""
+Deformation fields.
+
+Some deformation fields are displacement-based, while others are velocity-based.
+A key class is the 3d B-spline field.
+"""
 from typing import Callable, Dict, Iterable, Optional, Tuple, Union, List, Type, Literal
 from dataclasses import dataclass, field
 from abc import abstractmethod
@@ -48,14 +54,14 @@ class IdentityDeformationField(torch.nn.Module):
         return 0.0
 
 class NeuralPhiX(torch.nn.Module):
-    def __init__(self, num_control_points: int = 4, depth: int = 3, width: int = 10):
+    def __init__(self, num_control_points: int = 4, depth: int = 3, width: int = 10, init_gain: float = 1e-3, bias: bool = False):
         super().__init__()
         self.W = torch.nn.Sequential(torch.nn.Linear(1, width), torch.nn.SELU())
         for _ in range(depth-1):
             self.W.append(torch.nn.Linear(width, width))
             self.W.append(torch.nn.SELU())
-        lin = torch.nn.Linear(width, num_control_points, bias=False)
-        torch.nn.init.xavier_uniform_(lin.weight, gain=1e-3)
+        lin = torch.nn.Linear(width, num_control_points, bias=bias)
+        torch.nn.init.xavier_uniform_(lin.weight, gain=init_gain)
         self.W.append(lin)
 
     def forward(self, x):
@@ -258,7 +264,8 @@ class BSplineField3d(torch.nn.Module):
             support_outside: bool = False,
             support_range: Optional[List[Tuple[float,float]]] = None,
             num_control_points: Optional[Tuple[int,int,int]] = None,
-            A_sparse: bool = False
+            A_sparse: bool = False,
+            num_components: int = 3
     ) -> None:
         """Set up the B-spline field.
 
@@ -274,6 +281,7 @@ class BSplineField3d(torch.nn.Module):
             assert phi_x.ndim == 4
             assert phi_x.shape[0] > 3 and phi_x.shape[1] > 3 and phi_x.shape[2] > 3
             num_control_points = phi_x.shape[:3]
+            num_components = phi_x.shape[3]
         nx,ny,nz = num_control_points
         grid_size = np.array([nx, ny, nz])
         if support_range is None:
@@ -292,6 +300,7 @@ class BSplineField3d(torch.nn.Module):
         self.register_buffer('spacing', torch.tensor(spacing))
         self.register_buffer('support_outside', torch.tensor(support_outside))
         self.register_buffer('A_sparse', torch.tensor(A_sparse))
+        self.register_buffer('num_components', torch.tensor(num_components))
 
     def __repr__(self) -> str:
         f = self
@@ -466,8 +475,8 @@ class BSplineField3d(torch.nn.Module):
         A = self.get_A_matrix(x.view(-1), y.view(-1), z.view(-1))
         if phi_x is None:
             phi_x = self.phi_x
-        u = A@phi_x.view(-1,3)
-        return u.view(*shape, 3)
+        u = A@phi_x.view(-1, self.num_components)
+        return u.view(*shape, self.num_components)
 
     def mean_disp(self, phi_x: Optional[Union[Tensor, torch.nn.parameter.Parameter]] = None):
         if phi_x is None:
@@ -557,8 +566,14 @@ class BsplineTemporalDeformationField3dConfig(DeformationFieldConfig):
     """Number of control points in each dimension"""
     weight_nn_width: int = 16
     """Width of the neural network for the weights"""
+    weight_nn_bias: bool = False
+    """Whether to use bias in the neural network for the weights"""
+    weight_nn_gain: float = 1e-3
+    """Initialization gain for the weights of the final layer"""
     displacement_method: Literal['neighborhood','matrix'] = 'matrix'
     """Whether to use neighborhood calculation of bsplines or assemble full matrix""" 
+    num_components: int = 3
+    """Number of components in the deformation field"""
 
 class BsplineTemporalDeformationField3d(torch.nn.Module):
 
@@ -583,8 +598,19 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
         assert phi_x is None
         assert num_control_points is not None
         self.phi_x = None
-        self.weight_nn = NeuralPhiX(3*np.prod(num_control_points), 3, weight_nn_width)
-        self.bspline_field = BSplineField3d(support_outside=support_outside, support_range=support_range, num_control_points=num_control_points)
+        self.weight_nn = NeuralPhiX(
+            num_control_points=self.config.num_components*np.prod(num_control_points), 
+            depth=3, 
+            width=weight_nn_width, 
+            init_gain=config.weight_nn_gain, 
+            bias=config.weight_nn_bias
+        )
+        self.bspline_field = BSplineField3d(
+            support_outside=support_outside, 
+            support_range=support_range, 
+            num_control_points=num_control_points, 
+            num_components=config.num_components
+        )
         self.register_buffer('support_range', torch.tensor(support_range))
         self.warning_printed = False
         if config.displacement_method=='matrix':
@@ -595,7 +621,7 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
             raise ValueError('Displacement method has to be matrix or neighborhood')
 
     def get_u(self, positions, times):
-        phi = self.weight_nn(times).view(*self.bspline_field.grid_size, 3)
+        phi = self.weight_nn(times).view(*self.bspline_field.grid_size, self.config.num_components)
         x0, x1, x2 = positions[:,0], positions[:,1], positions[:,2]
         u = self.disp_func(x0, x1, x2, phi_x=phi)
         return u
@@ -631,16 +657,47 @@ class BsplineTemporalDeformationField3d(torch.nn.Module):
                 displacement[mask] = u
         return positions + displacement
 
+    def displacement(self, positions: Tensor, times: Tensor) -> Tensor:
+        # positions of shape [ray, nsamples, 3]
+        # times of shape [ray, nsamples, 1]
+        use_vmap = False
+        if use_vmap:
+            nsamples = positions.size(-2)
+            assert positions.size(-1)==3
+            orig_shape = positions.shape
+            
+            assert times.std(dim=-2).max()==0
+            times = times[..., 0, :] # [rays, 1]
+            displacement = torch.vmap(self.get_u, in_dims=0, out_dims=0)(positions.view(-1, nsamples, 3), times.view(-1,1))
+            displacement = displacement.reshape(orig_shape)
+        else:
+            displacement = positions.new_zeros(*positions.shape[:-1], self.config.num_components)
+            uq_times = torch.unique(times)
+            for t in uq_times:
+                mask = (times == t).squeeze()
+                if mask.numel()==1:
+                    x = positions
+                else:
+                    x = positions[mask]
+                u = self.get_u(x, t.view(-1,1))
+                if u.dtype!=displacement.dtype:
+                    displacement = displacement.to(u)
+                    if not self.warning_printed:
+                        print('displacement dtype changed to', u.dtype)
+                        self.warning_printed = True
+                displacement[mask] = u
+        return displacement
+
     def mean_disp(self) -> float:
         # sample and return the mean displacement
         device = next(self.parameters()).device
-        t = torch.rand(100,1, device=device)
+        t = torch.linspace(0, 1, 101, device=device).view(-1,1)
         return self.weight_nn(t).abs().mean().item()
 
     def max_disp(self) -> float:
         # sample and return the max displacement
         device = next(self.parameters()).device
-        t = torch.rand(100,1, device=device)
+        t = torch.linspace(0, 1, 101, device=device).view(-1,1)
         return self.weight_nn(t).abs().max().item()
     
 @dataclass
@@ -701,7 +758,7 @@ class BsplineTemporalIntegratedVelocityField3d(BsplineTemporalDeformationField3d
             if t.item()!=final_time: # add more randomness to this to make it "grid-free"
                 num_steps = ceil(torch.abs(t-final_time).item()/self.config.timedelta)
                 _times = torch.linspace(t, final_time, num_steps, device=x.device)
-                if _times.shape[0]>2:
+                if _times.shape[0]>2 and self.training:
                     r = 2*(torch.rand(_times.shape[0]-2, device=x.device)-0.5) # uniform random -1 to 1
                     _times[1:-1] += 0.1*self.config.timedelta*r # perturb by up to 10% dt
                 for it, _t in enumerate(_times[:-1]):

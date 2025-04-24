@@ -12,7 +12,7 @@ include = ["nerf_xray*"]
 [project.entry-points.'nerfstudio.method_configs']
 nerf_xray = 'nerf_xray.template_config:nerf_xray'
 nerf_def_xray = 'nerf_xray.xray_def_config:nerf_def_xray'
-xray_twofield = 'nerf_xray.twofield_config:xray_twofield'
 xray_vfield = 'nerf_xray.vfield_config:xray_vfield'
+spatiotemporal_mix = 'nerf_xray.spatiotemporal_mix_config:spatiotemporal_mix'
 [project.entry-points.'nerfstudio.dataparser_configs']
 xray-dataparser = 'nerf_xray.parser_config:XrayDataparser'
