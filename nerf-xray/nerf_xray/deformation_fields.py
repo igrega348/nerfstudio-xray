@@ -1,3 +1,9 @@
+"""
+Deformation fields.
+
+Some deformation fields are displacement-based, while others are velocity-based.
+A key class is the 3d B-spline field.
+"""
 from typing import Callable, Dict, Iterable, Optional, Tuple, Union, List, Type, Literal
 from dataclasses import dataclass, field
 from abc import abstractmethod

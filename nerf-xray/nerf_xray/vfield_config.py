@@ -1,7 +1,5 @@
 """
-Nerfstudio Template Config
-
-Define your custom method here that registers with Nerfstudio CLI.
+Configuration for the velocity field method.
 """
 
 from __future__ import annotations

@@ -1,3 +1,9 @@
+"""
+Field mixers for the velocity field method.
+
+The field mixers are used to mix the forward and backward fields.
+All field mixers implement the key `get_mixing_coefficient` which returns the mixing coefficient for a given position and time.
+"""
 from typing import Callable, Dict, Iterable, Optional, Tuple, Union, List, Type, Literal
 from dataclasses import dataclass, field
 from abc import abstractmethod

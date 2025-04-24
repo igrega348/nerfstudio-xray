@@ -1,3 +1,9 @@
+"""
+Script to combine forward and backward checkpoints.
+
+Usually run after training forward and backward models.
+The resulting checkpoint will append '_f' and '_b' to the keys of the forward and backward models, respectively.
+"""
 from typing import Optional
 from pathlib import Path
 import torch

@@ -1,7 +1,5 @@
 """
-Template Model File
-
-Currently this subclasses the Nerfacto model. Consider subclassing from the base Model.
+Model for the X-ray canonical volume reconstruction.
 """
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Tuple, Type, Union
