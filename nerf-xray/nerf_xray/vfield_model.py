@@ -147,8 +147,9 @@ class VfieldModel(Model):
         else:
             self.field_b = PlaceHolderField()
 
-        self.deformation_field = self.config.deformation_field().setup()
-        self.field_weighing = self.config.field_weighing().setup()
+        self.deformation_field = self.config.deformation_field.setup()
+        print(self.deformation_field)
+        self.field_weighing = self.config.field_weighing.setup()
 
         # train density or deformation field or field weighing
         if not self.config.train_density_field:
