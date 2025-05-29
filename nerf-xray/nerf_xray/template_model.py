@@ -109,7 +109,7 @@ class TemplateModel(Model):
             implementation=self.config.implementation,
         )
 
-        self.deformation_field = self.config.deformation_field.setup()
+        self.deformation_field = self.config.deformation_field().setup()
 
         # train density or deformation field
         if not self.config.train_density_field:
