@@ -187,7 +187,12 @@ class EvalDataloader(DataLoader):
         Args:
             image_idx: Camera image index
         """
-        camera = self.cameras[image_idx : image_idx + 1]
+        camera_indices = self.input_dataset.metadata['camera_indices'][image_idx]
+        # camera = self.cameras[camera_indices] # could be one camera or multiple
+        camera = [self.cameras[i] for i in camera_indices]
+        if len(camera) == 1:
+            camera = camera[0]
+        # camera = self.cameras[image_idx : image_idx + 1]
         batch = self.input_dataset[image_idx]
         batch = get_dict_to_torch(batch, device=self.device, exclude=["image"])
         assert isinstance(batch, dict)

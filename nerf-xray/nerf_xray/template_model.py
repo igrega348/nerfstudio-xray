@@ -259,17 +259,34 @@ class TemplateModel(Model):
             )
         return callbacks
     
-    def forward(self, ray_bundle: Union[RayBundle, Cameras, Tensor]) -> Dict[str, Union[torch.Tensor, List]]:
+    def forward(self, ray_bundle: Union[List[RayBundle], RayBundle, Cameras, Tensor]) -> Dict[str, Union[torch.Tensor, List]]:
         """Run forward starting with a ray bundle. This outputs different things depending on the configuration
         of the model and whether or not the batch is provided (whether or not we are training basically)
 
         Args:
             ray_bundle: containing all the information needed to render that ray latents included or positions for volumetric training
         """
-        if self.collider is not None:
-            ray_bundle = self.collider(ray_bundle)
+        if isinstance(ray_bundle, list):
+            outputs = [self.forward(rb) for rb in ray_bundle] # list of dicts
+            # weighted average
+            weights = torch.cat([rb.metadata['camera_weights'] for rb in ray_bundle], dim=1)
+            # weights = weights / weights.sum(dim=1, keepdim=True) # [num_rays, num_cameras]
+            weights = weights.permute(1,0) # [num_cameras, num_rays]
+            outputs_dict = {}
+            for k, v in outputs[0].items():
+                if isinstance(v, torch.Tensor):
+                    outputs_dict[k] = torch.einsum('ip,ip...->p...', weights, torch.stack([o[k] for o in outputs], dim=0))
+                elif isinstance(v, list):
+                    try:
+                        outputs_dict[k] = [torch.einsum('ip,ip...->p...', weights, torch.stack([o[k][i] for o in outputs], dim=0)) for i in range(len(v))]
+                    except TypeError: # does not work for RaySamples. Could take middle one but probably best to skip downstream applications
+                        pass
+            return outputs_dict
 
-        return self.get_outputs(ray_bundle)
+        else:
+            if self.collider is not None:
+                ray_bundle = self.collider(ray_bundle)
+            return self.get_outputs(ray_bundle)
 
     def get_outputs(self, ray_bundle: RayBundle):
         ray_samples: RaySamples
@@ -330,8 +347,8 @@ class TemplateModel(Model):
         predicted_rgb = outputs["rgb"]
         metrics_dict["psnr"] = self.psnr(predicted_rgb, gt_rgb)
 
-        if self.training:
-            metrics_dict["distortion"] = distortion_loss(outputs["weights_list"], outputs["ray_samples_list"])
+        # if self.training:
+        #     metrics_dict["distortion"] = distortion_loss(outputs["weights_list"], outputs["ray_samples_list"])
 
         if self.deformation_field is not None:
             metrics_dict["mean_disp"] = self.deformation_field.mean_disp()
@@ -349,11 +366,11 @@ class TemplateModel(Model):
         )
         loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb, pred_rgb)
         if self.training:
-            loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
-                outputs["weights_list"], outputs["ray_samples_list"]
-            )
-            assert metrics_dict is not None and "distortion" in metrics_dict
-            loss_dict["distortion_loss"] = self.config.distortion_loss_mult * metrics_dict["distortion"]
+            # loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
+            #     outputs["weights_list"], outputs["ray_samples_list"]
+            # )
+            # assert metrics_dict is not None and "distortion" in metrics_dict
+            # loss_dict["distortion_loss"] = self.config.distortion_loss_mult * metrics_dict["distortion"]
             if self.config.predict_normals:
                 # orientation loss for computed normals
                 loss_dict["orientation_loss"] = self.config.orientation_loss_mult * torch.mean(

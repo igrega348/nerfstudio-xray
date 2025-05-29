@@ -310,30 +310,77 @@ class VfieldModel(Model):
             )
         return callbacks
     
-    def forward(self, ray_bundle: Union[RayBundle, Cameras, Tensor], which: Optional[Literal['forward','backward','mixed']] = None) -> Dict[str, Union[torch.Tensor, List]]:
+    def forward(self, ray_bundle: Union[List[RayBundle], RayBundle, Cameras, Tensor], which: Optional[Literal['forward','backward','mixed']] = None) -> Dict[str, Union[torch.Tensor, List]]:
         """Run forward starting with a ray bundle. This outputs different things depending on the configuration
         of the model and whether or not the batch is provided (whether or not we are training basically)
 
         Args:
             ray_bundle: containing all the information needed to render that ray latents included or positions for volumetric training
         """
-        if self.collider is not None:
-            ray_bundle = self.collider(ray_bundle)
-
-        return self.get_outputs(ray_bundle, which=which)
+        if isinstance(ray_bundle, list):
+            outputs = [self.forward(rb, which=which) for rb in ray_bundle] # list of dicts
+            # weighted average
+            weights = torch.cat([rb.metadata['camera_weights'] for rb in ray_bundle], dim=1)
+            # do not normalize. Assume they come in normalized as they should be
+            # weights = weights / weights.sum(dim=1, keepdim=True) # [num_rays, num_cameras] # do not normalize
+            weights = weights.permute(1,0) # [num_cameras, num_rays]
+            outputs = self.sum_outputs_with_weights(outputs, weights)
+            return outputs
+        else:
+            if self.collider is not None:
+                ray_bundle = self.collider(ray_bundle)
+            return self.get_outputs(ray_bundle, which=which)
     
+    def sum_outputs_with_weights(
+        self,
+        outputs: List[Dict[str, Union[torch.Tensor, List]]],
+        weights: torch.Tensor
+    ) -> Dict[str, torch.Tensor]:
+        outputs_dict = {}
+        for k, v in outputs[0].items():
+            if isinstance(v, torch.Tensor):
+                outputs_dict[k] = torch.einsum('ip,ip...->p...', weights, torch.stack([o[k] for o in outputs], dim=0))
+            elif isinstance(v, list):
+                try:
+                    outputs_dict[k] = [torch.einsum('ip,ip...->p...', weights, torch.stack([o[k][i] for o in outputs], dim=0)) for i in range(len(v))]
+                except TypeError: # does not work for RaySamples. Could take middle one but probably best to skip downstream applications
+                    pass
+        return outputs_dict
+    
+    def sum_cameras_with_weights(
+        self,
+        outputs: List[Dict[str, Union[torch.Tensor, List]]],
+        weights: torch.Tensor
+    ) -> Dict[str, torch.Tensor]:
+        outputs_dict = {}
+        for k, v in outputs[0].items():
+            if isinstance(v, torch.Tensor):
+                outputs_dict[k] = torch.einsum('i,i...->...', weights, torch.stack([o[k] for o in outputs], dim=0))
+            elif isinstance(v, list):
+                try:
+                    outputs_dict[k] = [torch.einsum('i,i...->...', weights, torch.stack([o[k][i] for o in outputs], dim=0)) for i in range(len(v))]
+                except TypeError: # does not work for RaySamples. Could take middle one but probably best to skip downstream applications
+                    pass
+        return outputs_dict
+
     @torch.no_grad()
-    def get_outputs_for_camera(self, camera: Cameras, obb_box: Optional[OrientedBox] = None, which: Optional[Literal['forward','backward','mixed']] = None) -> Dict[str, torch.Tensor]:
+    def get_outputs_for_camera(self, camera: Union[Cameras, List[Cameras]], obb_box: Optional[OrientedBox] = None, which: Optional[Literal['forward','backward','mixed']] = None) -> Dict[str, torch.Tensor]:
         """Takes in a camera, generates the raybundle, and computes the output of the model.
         Assumes a ray-based model.
 
         Args:
             camera: generates raybundle
         """
-        return self.get_outputs_for_camera_ray_bundle(
-            camera.generate_rays(camera_indices=0, keep_shape=True, obb_box=obb_box),
-            which=which
-        )
+        if isinstance(camera, list):
+            outputs = [self.get_outputs_for_camera(c, obb_box=obb_box, which=which) for c in camera]
+            weights = torch.cat([c.metadata['camera_weights'] for c in camera])
+            outputs = self.sum_cameras_with_weights(outputs, weights)
+            return outputs
+        else:
+            return self.get_outputs_for_camera_ray_bundle(
+                camera.generate_rays(camera_indices=0, keep_shape=True, obb_box=obb_box),
+                which=which
+            )
 
     @torch.no_grad()
     def get_outputs_for_camera_ray_bundle(self, camera_ray_bundle: RayBundle, which: Optional[Literal['forward','backward','mixed']] = None) -> Dict[str, torch.Tensor]:

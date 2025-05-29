@@ -66,6 +66,26 @@ class NeuralPhiX(torch.nn.Module):
 
     def forward(self, x):
         return self.W(x)
+
+class NeuralFourierX(torch.nn.Module):
+    def __init__(self, num_control_points: int = 4, depth: int = 3, width: int = 10, init_gain: float = 1e-3, bias: bool = False):
+        super().__init__()
+        self.W = torch.nn.Sequential(torch.nn.Linear(9, width), torch.nn.SELU())
+        for _ in range(depth-1):
+            self.W.append(torch.nn.Linear(width, width))
+            self.W.append(torch.nn.SELU())
+        lin = torch.nn.Linear(width, num_control_points, bias=bias)
+        torch.nn.init.xavier_uniform_(lin.weight, gain=init_gain)
+        self.W.append(lin)
+
+    def forward(self, x):
+        # Fourier series expansion with a constant term, 4 sines and 4 cosines
+        y = x.new_zeros(x.shape[:-1], 9)
+        y[..., 0] = x[..., 0]
+        for i in range(1, 5):
+            y[..., i] = torch.sin(np.pi * i * x[..., 0])
+            y[..., i+4] = torch.cos(np.pi * i * x[..., 0])
+        return self.W(y)
     
 class MLPDeformationField(torch.nn.Module):
     def __init__(self, depth: int = 3, width: int = 10, support_range: Tuple[float,float] = (0,1)):

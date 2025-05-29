@@ -4,7 +4,7 @@ Template DataManager
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Literal, Tuple, Type, Union, Optional
+from typing import Dict, Literal, Tuple, Type, Union, Optional, List
 
 import torch
 from nerfstudio.cameras.rays import RayBundle
@@ -62,7 +62,7 @@ class XrayDataManager(VanillaDataManager):
                     self.object = None
                     print("Did not find a yaml file in the data folder. Volumetric loss cannot be computed.")
 
-    def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
+    def next_train(self, step: int) -> Tuple[Union[List[RayBundle], RayBundle], Dict]:
         """Returns the next batch of data from the train dataloader."""
         self.train_count += 1
         image_batch = next(self.iter_train_image_dataloader)
@@ -70,6 +70,14 @@ class XrayDataManager(VanillaDataManager):
         assert isinstance(image_batch, dict)
         batch = self.train_pixel_sampler.sample(image_batch)
         ray_indices = batch["indices"]
-        ray_bundle = self.train_ray_generator(ray_indices)
-            
-        return ray_bundle, batch
+        ray_bundles = []
+        num_cameras = self.train_dataset.metadata['camera_indices'].shape[1]
+        for i in range(num_cameras):
+            _ri = ray_indices.clone()
+            _ri[:, 0] = self.train_dataset.metadata['camera_indices'][_ri[:, 0], i]
+            ray_bundle = self.train_ray_generator(_ri)
+            ray_bundles.append(ray_bundle)
+        if len(ray_bundles) == 1:
+            ray_bundle = ray_bundles[0]
+        # ray_bundle = self.train_ray_generator(ray_indices)
+        return ray_bundles, batch

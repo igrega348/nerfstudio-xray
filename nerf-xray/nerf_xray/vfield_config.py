@@ -16,6 +16,7 @@ from nerfstudio.plugins.types import MethodSpecification
 
 from nerf_xray.xray_temporal_datamanager import XrayTemporalDataManagerConfig
 from nerf_xray.template_dataparser import TemplateDataParserConfig
+from nerf_xray.multi_camera_dataparser import MultiCameraDataParserConfig
 from nerf_xray.vfield_model import VfieldModelConfig
 from nerf_xray.vfield_pipeline import VfieldPipelineConfig
 from nerf_xray.field_mixers import ConstantMixerConfig
@@ -35,7 +36,7 @@ xray_vfield = MethodSpecification(
         load_optimizer=False,
         pipeline=VfieldPipelineConfig(
             datamanager=XrayTemporalDataManagerConfig(
-                dataparser=TemplateDataParserConfig(
+                dataparser=MultiCameraDataParserConfig(
                     auto_scale_poses=False,
                     center_method='none',
                     downscale_factors={'train': 1, 'val': 8, 'test': 8},

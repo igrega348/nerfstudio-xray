@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
 from typing import (Dict, Generic, Literal, Optional, Sequence, Tuple, Type,
-                    Union, Iterable)
+                    Union, Iterable, List)
 
 import numpy as np
 import torch
@@ -113,7 +113,7 @@ class XrayTemporalDataManager(VanillaDataManager, Generic[TDataset]):
         self.train_pixel_sampler = self._get_pixel_sampler(self.train_dataset, self.config.train_num_rays_per_batch)
         self.train_ray_generator = RayGenerator(self.train_dataset.cameras.to(self.device))
 
-    def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
+    def next_train(self, step: int) -> Tuple[Union[List[RayBundle], RayBundle], Dict]:
         """Returns the next batch of data from the train dataloader."""
         self.train_count += 1
         indices_to_sample_from = self.timestamp_sampler.choose_indices(self.train_dataset.metadata['image_timestamps'], step)
@@ -124,9 +124,17 @@ class XrayTemporalDataManager(VanillaDataManager, Generic[TDataset]):
         assert self.train_pixel_sampler is not None
         batch = self.train_pixel_sampler.sample(image_batch)
         ray_indices = batch["indices"]
-        ray_bundle = self.train_ray_generator(ray_indices)
-            
-        return ray_bundle, batch
+        ray_bundles = []
+        num_cameras = self.train_dataset.metadata['camera_indices'].shape[1]
+        for i in range(num_cameras):
+            _ri = ray_indices.clone()
+            _ri[:, 0] = self.train_dataset.metadata['camera_indices'][_ri[:, 0], i]
+            ray_bundle = self.train_ray_generator(_ri)
+            ray_bundles.append(ray_bundle)
+        if len(ray_bundles) == 1:
+            ray_bundles = ray_bundles[0]
+        # ray_bundles = self.train_ray_generator(ray_indices)
+        return ray_bundles, batch
 
     def setup_eval(self):
         """Sets up the data loader for evaluation"""
@@ -168,15 +176,23 @@ class XrayTemporalDataManager(VanillaDataManager, Generic[TDataset]):
         assert isinstance(image_batch, dict)
         batch = self.eval_pixel_sampler.sample(image_batch)
         ray_indices = batch["indices"]
-        ray_bundle = self.eval_ray_generator(ray_indices)
-        return ray_bundle, batch
+        ray_bundles = []
+        num_cameras = self.eval_dataset.metadata['camera_indices'].shape[1]
+        for i in range(num_cameras):
+            _ri = ray_indices.clone()
+            _ri[:, 0] = self.eval_dataset.metadata['camera_indices'][_ri[:, 0], i]
+            ray_bundle = self.eval_ray_generator(_ri)
+            ray_bundles.append(ray_bundle)
+        if len(ray_bundles) == 1:
+            ray_bundles = ray_bundles[0]
+        return ray_bundles, batch
 
     def next_eval_image(self, step: int) -> Tuple[Cameras, Dict]:
         indices_to_sample_from = self.timestamp_sampler.choose_indices(self.eval_dataset.metadata['image_timestamps'], step)
         self.fixed_indices_eval_dataloader.image_indices = indices_to_sample_from
         for camera, batch in self.fixed_indices_eval_dataloader:
         # for camera, batch in self.eval_dataloader:
-            assert camera.shape[0] == 1
+            # assert camera.shape[0] == 1 # could be multiple cameras. In which case sum outputs with weights
             return camera, batch
         raise ValueError("No more eval images")
 

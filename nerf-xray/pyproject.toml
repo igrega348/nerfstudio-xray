@@ -16,3 +16,4 @@ xray_vfield = 'nerf_xray.vfield_config:xray_vfield'
 spatiotemporal_mix = 'nerf_xray.spatiotemporal_mix_config:spatiotemporal_mix'
 [project.entry-points.'nerfstudio.dataparser_configs']
 xray-dataparser = 'nerf_xray.parser_config:XrayDataparser'
+multi-camera-dataparser = 'nerf_xray.parser_config:MultiCameraDataParser'

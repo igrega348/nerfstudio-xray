@@ -14,6 +14,7 @@ from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
 
 from nerf_xray.xray_datamanager import XrayDataManagerConfig
+from nerf_xray.multi_camera_dataparser import MultiCameraDataParserConfig
 from nerf_xray.template_dataparser import TemplateDataParserConfig
 from nerf_xray.template_model import TemplateModelConfig
 from nerf_xray.template_pipeline import TemplatePipelineConfig
@@ -31,7 +32,7 @@ nerf_xray = MethodSpecification(
         mixed_precision=True,
         pipeline=TemplatePipelineConfig(
             datamanager=XrayDataManagerConfig(
-                dataparser=TemplateDataParserConfig(
+                dataparser=MultiCameraDataParserConfig(
                     auto_scale_poses=False,
                     center_method='none',
                     downscale_factors={'train': 1, 'val': 8, 'test': 8},
