@@ -61,7 +61,7 @@ class TemplateModelConfig(NerfactoModelConfig):
     """whether to train the density field"""
     train_deformation_field: bool = False
     """whether to train the deformation field"""
-    deformation_field: DeformationFieldConfig = DeformationFieldConfig()
+    deformation_field: DeformationFieldConfig = field(default_factory=lambda: DeformationFieldConfig)
     """deformation field"""
     flat_field_value: float = 0.0
     """initial value of flat field"""

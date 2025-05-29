@@ -44,9 +44,9 @@ class VfieldPipelineConfig(VanillaPipelineConfig):
 
     _target: Type = field(default_factory=lambda: VfieldPipeline)
     """target class to instantiate"""
-    datamanager: DataManagerConfig = XrayDataManagerConfig()
+    datamanager: DataManagerConfig = field(default_factory=lambda: XrayDataManagerConfig)
     """specifies the datamanager config"""
-    model: ModelConfig = VfieldModelConfig()
+    model: ModelConfig = field(default_factory=lambda: VfieldModelConfig)
     """specifies the model config"""
     volumetric_supervision: bool = False
     """specifies if the training gets volumetric supervision"""

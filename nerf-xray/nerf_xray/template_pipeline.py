@@ -44,9 +44,9 @@ class TemplatePipelineConfig(VanillaPipelineConfig):
 
     _target: Type = field(default_factory=lambda: TemplatePipeline)
     """target class to instantiate"""
-    datamanager: DataManagerConfig = XrayDataManagerConfig()
+    datamanager: DataManagerConfig = field(default_factory=lambda: XrayDataManagerConfig)
     """specifies the datamanager config"""
-    model: ModelConfig = TemplateModelConfig()
+    model: ModelConfig = field(default_factory=lambda: TemplateModelConfig)
     """specifies the model config"""
     volumetric_supervision: bool = False
     """specifies if the training gets volumetric supervision"""
