@@ -30,10 +30,10 @@ MAX_AUTO_RESOLUTION = 2000
 
 
 @dataclass
-class TemplateDataParserConfig(DataParserConfig):
+class XrayDataParserConfig(DataParserConfig):
     """Nerfstudio dataset config"""
 
-    _target: Type = field(default_factory=lambda: TemplateDataParser)
+    _target: Type = field(default_factory=lambda: XrayDataParser)
     """target class to instantiate"""
     data: Path = Path()
     """Directory or explicit json file path specifying location of data."""
@@ -112,12 +112,12 @@ def split_files(image_filenames: List, imin: int, imax: int, istep: int, indices
 
     return np.array(i_train), np.array(i_eval)
 
-class TemplateDataParser(Nerfstudio):
-    """Template DataParser"""
-    config: TemplateDataParserConfig
+class XrayDataParser(Nerfstudio):
+    """Xray DataParser"""
+    config: XrayDataParserConfig
     downscale_factors: Dict[str, float] = {}
 
-    def __init__(self, config: TemplateDataParserConfig):
+    def __init__(self, config: XrayDataParserConfig):
         super().__init__(config)
         self.includes_time = config.includes_time
 

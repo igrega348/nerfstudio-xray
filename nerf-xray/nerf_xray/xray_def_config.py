@@ -17,9 +17,9 @@ from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
 
 from nerf_xray.xray_temporal_datamanager import XrayTemporalDataManagerConfig
-from nerf_xray.template_dataparser import TemplateDataParserConfig
-from nerf_xray.template_model import TemplateModelConfig
-from nerf_xray.template_pipeline import TemplatePipelineConfig
+from nerf_xray.xray_dataparser import XrayDataParserConfig
+from nerf_xray.canonical_model import CanonicalModelConfig
+from nerf_xray.canonical_pipeline import CanonicalPipelineConfig
 from nerf_xray.deformation_fields import (BsplineTemporalDeformationField3dConfig,
                                           BsplineDeformationField3dConfig)
 
@@ -34,9 +34,9 @@ nerf_def_xray = MethodSpecification(
         mixed_precision=True,
         load_scheduler=False,
         load_optimizer=False,
-        pipeline=TemplatePipelineConfig(
+        pipeline=CanonicalPipelineConfig(
             datamanager=XrayTemporalDataManagerConfig(
-                dataparser=TemplateDataParserConfig(
+                dataparser=XrayDataParserConfig(
                     auto_scale_poses=False,
                     center_method='none',
                     downscale_factors={'train': 1, 'val': 8, 'test': 8},
@@ -48,7 +48,7 @@ nerf_def_xray = MethodSpecification(
                 max_images_per_timestamp=3,
                 time_proposal_steps=500,
             ),
-            model=TemplateModelConfig(
+            model=CanonicalModelConfig(
                 use_appearance_embedding=False,
                 background_color='white',
                 flat_field_value=0.02,

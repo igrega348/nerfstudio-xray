@@ -15,9 +15,9 @@ from nerfstudio.plugins.types import MethodSpecification
 
 from nerf_xray.xray_datamanager import XrayDataManagerConfig
 from nerf_xray.multi_camera_dataparser import MultiCameraDataParserConfig
-from nerf_xray.template_dataparser import TemplateDataParserConfig
-from nerf_xray.template_model import TemplateModelConfig
-from nerf_xray.template_pipeline import TemplatePipelineConfig
+from nerf_xray.xray_dataparser import XrayDataParserConfig
+from nerf_xray.canonical_model import CanonicalModelConfig
+from nerf_xray.canonical_pipeline import CanonicalPipelineConfig
 from nerf_xray.utils import ColdRestartLinearDecaySchedulerConfig
 
 
@@ -30,7 +30,7 @@ nerf_xray = MethodSpecification(
         steps_per_save=5000,
         max_num_iterations=1001,
         mixed_precision=True,
-        pipeline=TemplatePipelineConfig(
+        pipeline=CanonicalPipelineConfig(
             datamanager=XrayDataManagerConfig(
                 dataparser=MultiCameraDataParserConfig(
                     auto_scale_poses=False,
@@ -41,7 +41,7 @@ nerf_xray = MethodSpecification(
                 train_num_rays_per_batch=1024,
                 eval_num_rays_per_batch=2048,
             ),
-            model=TemplateModelConfig(
+            model=CanonicalModelConfig(
                 use_appearance_embedding=False,
                 background_color='white',
                 flat_field_value=0.0,

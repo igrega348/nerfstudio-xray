@@ -49,7 +49,7 @@ from .deformation_fields import (AffineTemporalDeformationField,
                                  DeformationFieldConfig,
                                  IdentityDeformationField,
                                  MLPDeformationField)
-from .template_field import TemplateNerfField, PlaceHolderField
+from .canonical_field import CanonicalNerfField, PlaceHolderField
 from .xray_renderer import AttenuationRenderer
     
 @dataclass
@@ -104,7 +104,7 @@ class VfieldModel(Model):
 
         # Fields
         if self.config.direction in ['forward', 'both']:
-            self.field_f = TemplateNerfField(
+            self.field_f = CanonicalNerfField(
                 self.scene_box.aabb,
                 hidden_dim=self.config.hidden_dim,
                 num_levels=self.config.num_levels,
@@ -126,7 +126,7 @@ class VfieldModel(Model):
             self.field_f = PlaceHolderField()
 
         if self.config.direction in ['backward', 'both']:
-            self.field_b = TemplateNerfField(
+            self.field_b = CanonicalNerfField(
                 self.scene_box.aabb,
                 hidden_dim=self.config.hidden_dim,
                 num_levels=self.config.num_levels,
@@ -148,7 +148,6 @@ class VfieldModel(Model):
             self.field_b = PlaceHolderField()
 
         self.deformation_field = self.config.deformation_field.setup()
-        print(self.deformation_field)
         self.field_weighing = self.config.field_weighing.setup()
 
         # train density or deformation field or field weighing

@@ -34,19 +34,19 @@ from torch.cuda.amp.grad_scaler import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from nerf_xray.xray_datamanager import XrayDataManagerConfig
-from nerf_xray.template_model import TemplateModel, TemplateModelConfig
+from nerf_xray.canonical_model import CanonicalModel, CanonicalModelConfig
 
 
 
 @dataclass
-class TemplatePipelineConfig(VanillaPipelineConfig):
+class CanonicalPipelineConfig(VanillaPipelineConfig):
     """Configuration for pipeline instantiation"""
 
-    _target: Type = field(default_factory=lambda: TemplatePipeline)
+    _target: Type = field(default_factory=lambda: CanonicalPipeline)
     """target class to instantiate"""
     datamanager: DataManagerConfig = field(default_factory=lambda: XrayDataManagerConfig)
     """specifies the datamanager config"""
-    model: ModelConfig = field(default_factory=lambda: TemplateModelConfig)
+    model: ModelConfig = field(default_factory=lambda: CanonicalModelConfig)
     """specifies the model config"""
     volumetric_supervision: bool = False
     """specifies if the training gets volumetric supervision"""
@@ -60,8 +60,8 @@ class TemplatePipelineConfig(VanillaPipelineConfig):
     """penalty to increase flat field"""
 
 
-class TemplatePipeline(VanillaPipeline):
-    """Template Pipeline
+class CanonicalPipeline(VanillaPipeline):
+    """Canonical Pipeline
 
     Args:
         config: the pipeline config used to instantiate class
@@ -69,7 +69,7 @@ class TemplatePipeline(VanillaPipeline):
 
     def __init__(
         self,
-        config: TemplatePipelineConfig,
+        config: CanonicalPipelineConfig,
         device: str,
         test_mode: Literal["test", "val", "inference"] = "val",
         world_size: int = 1,
@@ -100,7 +100,7 @@ class TemplatePipeline(VanillaPipeline):
         self.world_size = world_size
         if world_size > 1:
             self._model = typing.cast(
-                TemplateModel, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True)
+                CanonicalModel, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True)
             )
             dist.barrier(device_ids=[local_rank])
 

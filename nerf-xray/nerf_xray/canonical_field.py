@@ -20,7 +20,7 @@ from torch import Tensor
 
 
 
-class TemplateNerfField(NerfactoField):
+class CanonicalNerfField(NerfactoField):
     """Template Field
 
     Args:

@@ -17,7 +17,7 @@ from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
 
 from nerf_xray.xray_temporal_datamanager import XrayTemporalDataManagerConfig
-from nerf_xray.template_dataparser import TemplateDataParserConfig
+from nerf_xray.xray_dataparser import XrayDataParserConfig
 from nerf_xray.multi_camera_dataparser import MultiCameraDataParserConfig
 from nerf_xray.vfield_model import VfieldModelConfig
 from nerf_xray.field_mixers import SpatioTemporalMixerConfig, TemporalMixerConfig

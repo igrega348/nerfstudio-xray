@@ -10,7 +10,7 @@ include = ["nerf_xray*"]
 
 # register the entry point of your new method here:
 [project.entry-points.'nerfstudio.method_configs']
-nerf_xray = 'nerf_xray.template_config:nerf_xray'
+nerf_xray = 'nerf_xray.canonical_config:nerf_xray'
 nerf_def_xray = 'nerf_xray.xray_def_config:nerf_def_xray'
 xray_vfield = 'nerf_xray.vfield_config:xray_vfield'
 spatiotemporal_mix = 'nerf_xray.spatiotemporal_mix_config:spatiotemporal_mix'

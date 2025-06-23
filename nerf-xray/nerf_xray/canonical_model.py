@@ -43,19 +43,19 @@ from .deformation_fields import (AffineTemporalDeformationField,
                                  DeformationFieldConfig,
                                  IdentityDeformationField,
                                  MLPDeformationField)
-from .template_field import TemplateNerfField
+from .canonical_field import CanonicalNerfField
 from .xray_renderer import AttenuationRenderer
 
 
 
 @dataclass
-class TemplateModelConfig(NerfactoModelConfig):
-    """Template Model Configuration.
+class CanonicalModelConfig(NerfactoModelConfig):
+    """Canonical Model Configuration.
 
     Add your custom model config parameters here.
     """
 
-    _target: Type = field(default_factory=lambda: TemplateModel)
+    _target: Type = field(default_factory=lambda: CanonicalModel)
     # need to add flags for whether field is frozen or deformation is frozen
     train_density_field: bool = True
     """whether to train the density field"""
@@ -68,14 +68,14 @@ class TemplateModelConfig(NerfactoModelConfig):
     flat_field_trainable: bool = False
     """trainable background color"""
 
-class TemplateModel(Model):
+class CanonicalModel(Model):
     """Nerfacto model
 
     Args:
         config: Nerfacto configuration to instantiate model
     """
 
-    config: TemplateModelConfig
+    config: CanonicalModelConfig
 
     def populate_modules(self):
         """Set the fields and modules."""
@@ -89,7 +89,7 @@ class TemplateModel(Model):
         appearance_embedding_dim = self.config.appearance_embed_dim if self.config.use_appearance_embedding else 0
 
         # Fields
-        self.field = TemplateNerfField(
+        self.field = CanonicalNerfField(
         # self.field = NerfactoField(
             self.scene_box.aabb,
             hidden_dim=self.config.hidden_dim,
