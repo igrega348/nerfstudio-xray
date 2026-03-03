@@ -127,7 +127,7 @@ class CanonicalPipeline(VanillaPipeline):
     
     @profiler.time_function
     def get_average_eval_image_metrics(
-        self, step: Optional[int] = None, output_path: Optional[Path] = None, get_std: bool = False
+        self, step: Optional[int] = None, output_path: Optional[Path] = None, get_std: bool = False, which=None
     ):
         """Iterate over all the images in the eval dataset and get the average.
 
