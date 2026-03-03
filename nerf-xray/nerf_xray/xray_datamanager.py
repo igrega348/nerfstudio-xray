@@ -81,3 +81,22 @@ class XrayDataManager(VanillaDataManager):
             ray_bundle = ray_bundles[0]
         # ray_bundle = self.train_ray_generator(ray_indices)
         return ray_bundles, batch
+
+    def next_eval(self, step: int) -> Tuple[RayBundle, Dict]:
+        """Returns the next batch of data from the eval dataloader."""
+        self.eval_count += 1
+        image_batch = next(self.iter_eval_image_dataloader)
+        assert self.eval_pixel_sampler is not None
+        assert isinstance(image_batch, dict)
+        batch = self.eval_pixel_sampler.sample(image_batch)
+        ray_indices = batch["indices"]
+        ray_bundles = []
+        num_cameras = self.eval_dataset.metadata['camera_indices'].shape[1]
+        for i in range(num_cameras):
+            _ri = ray_indices.clone()
+            _ri[:, 0] = self.eval_dataset.metadata['camera_indices'][_ri[:, 0], i]
+            ray_bundle = self.eval_ray_generator(_ri)
+            ray_bundles.append(ray_bundle)
+        if len(ray_bundles) == 1:
+            ray_bundles = ray_bundles[0]
+        return ray_bundles, batch
