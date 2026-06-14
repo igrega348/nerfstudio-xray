@@ -165,8 +165,9 @@ class VfieldPipeline(VanillaPipeline):
         self, 
         step: Optional[int] = None, 
         output_path: Optional[Path] = None, 
-        get_std: bool = False, 
-        which: Optional[Literal['forward','backward','mixed']] = None
+        get_std: bool = False,
+        which: Optional[Literal['forward','backward','mixed']] = None,
+        **kwargs,
     ):
         """Iterate over all the images in the eval dataset and get the average.
 
@@ -298,7 +299,13 @@ class VfieldPipeline(VanillaPipeline):
         else:
             obj = target
 
-        density = obj.density(pos).squeeze() # density between -1 and 1
+        try:
+            T = self.datamanager.train_dataparser_outputs.dataparser_transform
+            R = T[:3, :3].to(pos)
+            world_pos = pos @ R
+        except Exception:
+            world_pos = pos
+        density = obj.density(world_pos).squeeze() # density between -1 and 1
         
         normed_correlation_f = self.calculate_normed_correlation(x=density, y=pred_density_f)
         normed_correlation_b = self.calculate_normed_correlation(x=density, y=pred_density_b)

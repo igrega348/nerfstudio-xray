@@ -127,7 +127,7 @@ class CanonicalPipeline(VanillaPipeline):
     
     @profiler.time_function
     def get_average_eval_image_metrics(
-        self, step: Optional[int] = None, output_path: Optional[Path] = None, get_std: bool = False, which=None
+        self, step: Optional[int] = None, output_path: Optional[Path] = None, get_std: bool = False, which=None, **kwargs
     ):
         """Iterate over all the images in the eval dataset and get the average.
 
@@ -223,6 +223,111 @@ class CanonicalPipeline(VanillaPipeline):
             'scaled_volumetric_loss': scaled_density_loss,
             'normed_correlation': normed_correlation
             }
+
+    def get_eval_density_loss(
+        self,
+        sampling: Literal['random', 'grid'] = 'random',
+        time: Optional[float] = None,
+        target=None,
+        npoints: Optional[int] = None,
+        extent: Optional[Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]]] = None,
+        batch_size: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Evaluate density loss for CanonicalPipeline (single-field model).
+
+        Args:
+            sampling: 'grid' or 'random' point sampling strategy.
+            time: time parameter (unused for canonical model, kept for API compatibility).
+            target: an Object whose .density() provides ground-truth density.
+                    Falls back to self.datamanager.object if None.
+            npoints: number of sample points (per axis for grid, total for random).
+            extent: axis-aligned bounding box as ((x0,x1),(y0,y1),(z0,z1)).
+                    Defaults to ((-1,1),(-1,1),(-1,1)).
+            batch_size: max points per forward pass (to fit in GPU memory).
+        """
+        if extent is None:
+            extent = ((-1, 1), (-1, 1), (-1, 1))
+
+        if sampling == 'grid':
+            if npoints is None:
+                npoints = 200 ** 3
+            n_per_axis = int(round(npoints ** (1 / 3)))
+            lsp = torch.linspace(0, 1, n_per_axis, device=self.device)
+            pos = torch.stack(
+                torch.meshgrid(
+                    extent[0][0] + lsp * (extent[0][1] - extent[0][0]),
+                    extent[1][0] + lsp * (extent[1][1] - extent[1][0]),
+                    extent[2][0] + lsp * (extent[2][1] - extent[2][0]),
+                    indexing='ij',
+                ),
+                dim=-1,
+            ).reshape(-1, 3)
+        elif sampling == 'random':
+            if npoints is None:
+                npoints = self.config.datamanager.train_num_rays_per_batch * 32
+            pos = torch.rand((npoints, 3), device=self.device)
+            pos[:, 0] = extent[0][0] + pos[:, 0] * (extent[0][1] - extent[0][0])
+            pos[:, 1] = extent[1][0] + pos[:, 1] * (extent[1][1] - extent[1][0])
+            pos[:, 2] = extent[2][0] + pos[:, 2] * (extent[2][1] - extent[2][0])
+        else:
+            raise ValueError(f"Unknown sampling strategy: {sampling!r}")
+
+        if batch_size is None:
+            batch_size = 1 << 50
+
+        pred_density_chunks = []
+        for i in range(0, pos.shape[0], batch_size):
+            pos_batch = pos[i:i + batch_size]
+            if self._model.deformation_field is not None:
+                chunk = self._model.field.get_density_from_pos(
+                    pos_batch,
+                    deformation_field=self._model.deformation_field,
+                    time=time,
+                ).squeeze()
+            else:
+                chunk = self._model.field.get_density_from_pos(pos_batch).squeeze()
+            pred_density_chunks.append(chunk)
+        pred_density = torch.cat(pred_density_chunks, dim=0)
+
+        if target is None:
+            obj = self.datamanager.object
+        else:
+            obj = target
+
+        # Convert pos from NeRF coordinate space to original world coordinate space
+        # before querying obj.density, which uses world-space coordinates from object.json.
+        # dataparser_transform T (3x4) maps world→NeRF: p_nerf = R @ p_world  (column-vec convention)
+        # For row-vector tensors (N,3): p_nerf = p_world @ R.T
+        # Inverse: p_world = p_nerf @ R  (since R is orthogonal: R^{-1} = R^T, row-vec: p_world = p_nerf @ R)
+        try:
+            T = self.datamanager.train_dataparser_outputs.dataparser_transform  # (3, 4)
+            R = T[:3, :3].to(pos)  # (3, 3)
+            world_pos = pos @ R  # (N, 3)
+        except Exception:
+            world_pos = pos
+
+        density = obj.density(world_pos).squeeze()
+
+        x = density
+        y = pred_density
+
+        density_loss = torch.nn.functional.mse_loss(y, x)
+
+        density_n = (x - x.min()) / (x.max() - x.min() + 1e-8)
+        pred_dens_n = (y - y.min()) / (y.max() - y.min() + 1e-8)
+        scaled_density_loss = torch.nn.functional.mse_loss(pred_dens_n, density_n)
+
+        mux = x.mean()
+        muy = y.mean()
+        dx = x - mux
+        dy = y - muy
+        normed_correlation = torch.sum(dx * dy) / torch.sqrt(dx.pow(2).sum() * dy.pow(2).sum() + 1e-8)
+
+        return {
+            'volumetric_loss': density_loss,
+            'scaled_volumetric_loss': scaled_density_loss,
+            'normed_correlation': normed_correlation,
+        }
 
     def get_flat_field_penalty(self):
         return -self.config.flat_field_penalty*self.model.flat_field
