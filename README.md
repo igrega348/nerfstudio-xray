@@ -166,15 +166,13 @@ For `xray_vfield`, pass separate files for the two endpoints:
 
 ## `multi-camera-dataparser` key options
 
-The values below are what the registered method entry points (`nerf_xray`, `xray_vfield`, `spatiotemporal_mix`) set. The class-level defaults for `auto_scale_poses` and `center_method` are `True` and `'poses'` respectively — if you construct `multi-camera-dataparser` outside a registered method, you must override these explicitly or camera positions will be silently normalised/recentred, which breaks X-ray geometry.
-
-| Option | Value in method configs | Effect |
+| Option | Default | Effect |
 |---|---|---|
 | `includes_time` | `False` (`True` in `xray_vfield` / `spatiotemporal_mix`) | Pass the `time` field from JSON to the model |
 | `auto_scale_poses` | `False` | Do not normalise camera positions (X-ray geometry is metric) |
 | `center_method` | `'none'` | Do not recentre the scene |
 | `orientation_method` | `'none'` | Do not auto-orient poses (preserves world frame) |
 | `eval_mode` | `'filename+modulo'` | Split by `train_*` / `eval_*` filename prefix |
-| `downscale_factors` | `{'val': 8, 'test': 8}` | Per-split downscale; override with e.g. `--downscale-factors.val 2` |
+| `downscale_factors` | `{}` (auto; method configs set `{'val': 8, 'test': 8}`) | Per-split downscale; override with e.g. `--downscale-factors.val 2` |
 | `imin` / `imax` / `istep` | `0 / ∞ / 1` | Filter training frame indices (mutually exclusive with `indices`) |
 | `indices` | `None` | Explicit list of training frame indices; overrides `imin`/`imax`/`istep` |
