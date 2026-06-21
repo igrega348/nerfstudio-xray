@@ -58,15 +58,20 @@ xray_vfield = MethodSpecification(
                 disable_scene_contraction=True,
                 train_density_field=False,
                 train_deformation_field=True,
+                distortion_loss_mult=0.0,
+                interlevel_loss_mult=0.0,
                 deformation_field=BsplineTemporalIntegratedVelocityField3dConfig(
                     support_range=[(-1,1),(-1,1),(-1,1)],
                     num_control_points=(4,4,4),
                     timedelta=0.05,
+                    weight_nn_bias=True,
+                    weight_nn_gain=1.0,
                 ),
                 field_weighing=ConstantMixerConfig(alpha=0.5),
                 train_field_weighing=False,
             ),
             volumetric_supervision=False,
+            flat_field_loss_multiplier=0.0,
         ),
         optimizers={
             # TODO: consider changing optimizers depending on your custom method

@@ -62,6 +62,8 @@ spatiotemporal_mix = MethodSpecification(
                     support_range=[(-1,1),(-1,1),(-1,1)],
                     num_control_points=(4,4,4),
                     timedelta=0.05,
+                    weight_nn_bias=True,
+                    weight_nn_gain=1.0,
                 ),
                 field_weighing=SpatioTemporalMixerConfig(
                     num_control_points=(6,6,6),
@@ -73,6 +75,7 @@ spatiotemporal_mix = MethodSpecification(
                 train_deformation_field=False,
             ),
             volumetric_supervision=False,
+            flat_field_loss_multiplier=0.0,
         ),
         optimizers={
             "proposal_networks": {
