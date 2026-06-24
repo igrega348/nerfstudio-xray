@@ -367,5 +367,7 @@ class VoxelGrid(Object):
             _pos = pos.unsqueeze(0).unsqueeze(0)
         else:
             raise ValueError(f"Expected 2D or 3D tensor, got {pos.ndim}D")
-        rho = torch.nn.functional.grid_sample(self.rho.unsqueeze(0).unsqueeze(0).to(pos), _pos, align_corners=True)
+        if self.rho.device != pos.device:
+            self.rho = self.rho.to(pos.device)
+        rho = torch.nn.functional.grid_sample(self.rho.unsqueeze(0).unsqueeze(0), _pos, align_corners=True)
         return rho.reshape(*pos.shape[:-1], 1)
